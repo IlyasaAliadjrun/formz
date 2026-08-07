@@ -5,14 +5,22 @@
   "description": "Backend API (NestJS) untuk form builder",
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build",
+    "build": "prisma generate && nest build",
     "dev": "nest start --watch --preserveWatchOutput",
     "start": "node dist/main.js",
     "start:dev": "nest start --watch --preserveWatchOutput",
     "start:debug": "nest start --debug 0.0.0.0:9229 --watch",
     "start:prod": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "postinstall": "prisma generate",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:status": "prisma migrate status",
+    "db:migrate:reset": "prisma migrate reset",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio"
   },
   "dependencies": {
     "@formz/shared": "workspace:*",
@@ -20,6 +28,9 @@
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.1.28",
     "@nestjs/platform-express": "^11.1.28",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
+    "bcryptjs": "^3.0.3",
     "bullmq": "^6.0.9",
     "ioredis": "^5.9.0",
     "pg": "^8.22.0",
@@ -30,9 +41,13 @@
   "devDependencies": {
     "@nestjs/cli": "^11.0.24",
     "@nestjs/schematics": "^11.1.0",
+    "@types/bcryptjs": "^3.0.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.20.1",
     "@types/pg": "^8.20.4",
+    "dotenv": "^17.4.2",
+    "prisma": "^7.9.1",
+    "tsx": "^4.23.10",
     "typescript": "^5.9.3"
   }
 }

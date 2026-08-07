@@ -32,3 +32,6 @@ coverage/
 
 # docker local data
 docker/data/
+
+# Prisma client hasil generate (dibuat ulang saat install/build)
+apps/api/src/generated/

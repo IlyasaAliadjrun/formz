@@ -4,8 +4,10 @@ packages:
 
 # Paket yang boleh menjalankan build/postinstall script (pnpm memblokirnya secara default).
 allowBuilds:
+  '@prisma/engines': true
   esbuild: true
   msgpackr-extract: true
+  prisma: true
   unrs-resolver: true
 
 # pnpm menahan versi yang baru rilis; versi di bawah ini sengaja dipakai.

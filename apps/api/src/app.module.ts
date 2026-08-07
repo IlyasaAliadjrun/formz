@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AppConfigModule } from './config/config.module';
 import { HealthModule } from './health/health.module';
-import { DatabaseModule } from './infrastructure/database/database.module';
+import { PrismaModule } from './infrastructure/prisma/prisma.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { FormsModule } from './modules/forms/forms.module';
@@ -17,7 +17,7 @@ import { UsersModule } from './modules/users/users.module';
   imports: [
     // Infrastruktur
     AppConfigModule,
-    DatabaseModule,
+    PrismaModule,
     RedisModule,
     HealthModule,
 

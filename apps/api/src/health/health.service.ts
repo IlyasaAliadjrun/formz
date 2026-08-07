@@ -1,8 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { DependencyHealth, HealthResponse } from '@formz/shared';
 import type Redis from 'ioredis';
-import type { Pool } from 'pg';
-import { PG_POOL } from '../infrastructure/database/database.module';
+import { PrismaService } from '../infrastructure/prisma/prisma.service';
 import { REDIS_CLIENT } from '../infrastructure/redis/redis.module';
 
 const CHECK_TIMEOUT_MS = 3_000;
@@ -12,7 +11,7 @@ export class HealthService {
   private readonly logger = new Logger(HealthService.name);
 
   constructor(
-    @Inject(PG_POOL) private readonly pool: Pool,
+    private readonly prisma: PrismaService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -32,7 +31,7 @@ export class HealthService {
 
   private async checkPostgres(): Promise<DependencyHealth> {
     return this.measure('postgres', async () => {
-      await this.pool.query('SELECT 1');
+      await this.prisma.$queryRaw`SELECT 1`;
     });
   }
 

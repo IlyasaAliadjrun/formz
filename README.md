@@ -89,8 +89,9 @@ Urutan start-up sudah diatur otomatis:
 1. `deps` — `pnpm install --frozen-lockfile` untuk seluruh workspace (sekali jalan, lalu exit)
 2. `shared-build` — build `@formz/shared` ke `dist/` (sekali jalan, lalu exit)
 3. `postgres`, `redis`, `minio` — ditunggu sampai status **healthy**
-4. `minio-init` — bikin bucket upload kalau belum ada
-5. `api`, `worker`, `dashboard`, `embed` — baru start setelah semuanya siap
+4. `db-setup` — `prisma generate` → `prisma migrate deploy` → `prisma db seed` (idempotent)
+5. `minio-init` — bikin bucket upload kalau belum ada
+6. `api`, `worker`, `dashboard`, `embed` — baru start setelah semuanya siap
 
 Run pertama butuh beberapa menit (download image + install dependency). Run berikutnya jauh
 lebih cepat karena `node_modules` dan store pnpm sudah ada di folder project.
@@ -160,6 +161,30 @@ docker compose run --rm deps pnpm format
 # Typecheck seluruh monorepo
 docker compose run --rm deps pnpm typecheck
 ```
+
+### Database (Prisma)
+
+```bash
+# Terapkan migrasi yang belum jalan + seed (sama seperti yang jalan otomatis saat up)
+docker compose run --rm db-setup
+
+# Bikin migrasi baru setelah mengubah prisma/schema.prisma
+docker compose run --rm deps pnpm --filter @formz/api db:migrate --name nama_perubahan
+
+# Lihat status migrasi
+docker compose run --rm deps pnpm --filter @formz/api db:migrate:status
+
+# Reset database (HAPUS SEMUA DATA, lalu migrate + seed ulang)
+docker compose run --rm deps pnpm --filter @formz/api db:migrate:reset
+
+# Seed saja
+docker compose run --rm deps pnpm --filter @formz/api db:seed
+```
+
+Seed membuat 8 permission, 3 role (Super Admin, Form Manager, Viewer), dan satu user admin
+dari `ADMIN_EMAIL` + `ADMIN_PASSWORD` di `.env`. Kalau dua variabel itu kosong, pembuatan user
+admin dilewati dengan peringatan — service lain tetap jalan. Password hanya diterapkan saat
+user pertama kali dibuat, jadi password yang sudah diganti tidak akan ditimpa balik.
 
 Kalau kamu memang punya Node 22 + pnpm di host, bisa juga jalan langsung:
 
@@ -231,6 +256,7 @@ docker compose up
 | Dashboard      | Next.js 16, React 19, Tailwind CSS 4, shadcn/ui     |
 | Form renderer  | Preact 10, Vite 7                                   |
 | API            | NestJS 11, TypeScript 5.9                           |
+| ORM            | Prisma 7 (driver adapter `pg`, tanpa engine Rust)   |
 | Worker         | BullMQ 6, tsx                                       |
 | Shared         | Zod 4                                               |
 | Database       | PostgreSQL 17 (JSONB)                               |

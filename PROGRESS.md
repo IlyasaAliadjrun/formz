@@ -3,12 +3,12 @@
 Catatan progres lintas sesi. Setiap part yang selesai dicentang di sini, lengkap dengan
 tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tanpa menebak-nebak.
 
-**Status saat ini:** Part 0 selesai. Berikutnya: Part 1 (skema database & migrasi).
+**Status saat ini:** Part 1 selesai. Berikutnya: Part 2 (Auth & RBAC).
 
 | Part | Judul                                    | Status     |
 | ---- | ---------------------------------------- | ---------- |
 | 0    | Scaffolding & environment development    | ✅ Selesai |
-| 1    | Skema database & lapisan data            | ⬜ Belum   |
+| 1    | Skema database & lapisan data            | ✅ Selesai |
 | 2    | Auth & RBAC                              | ⬜ Belum   |
 | 3    | Form CRUD & schema engine (API)          | ⬜ Belum   |
 | 4    | Form builder UI (dashboard)              | ⬜ Belum   |
@@ -51,24 +51,89 @@ _Selesai: 7 Agustus 2026_
 
 **Catatan untuk part berikutnya:**
 
-- Belum ada ORM. `apps/api` memakai `pg.Pool` mentah lewat token DI `PG_POOL`; keputusan
-  ORM/query builder (Drizzle / Prisma / TypeORM) diambil di Part 1.
-- Belum ada tabel apa pun di database — Postgres masih kosong.
+- ~~Belum ada ORM~~ → diselesaikan di Part 1: Prisma, `PG_POOL` sudah dihapus.
+- ~~Belum ada tabel apa pun di database~~ → diselesaikan di Part 1.
 - `packages/shared` dikonsumsi dalam bentuk hasil build (`dist/`). Setelah mengubah shared,
   jalankan `docker compose run --rm shared-build`.
 
 ---
 
-## ⬜ Part 1 — Skema database & lapisan data
+## ✅ Part 1 — Skema database & lapisan data
 
-- [ ] Pilih & pasang ORM/query builder + tooling migrasi
-- [ ] Tabel `users`, `roles`, `permissions`, `role_permissions`, `user_roles`
-- [ ] Tabel `forms` (kolom `form_key` publik & acak) + `form_versions` (schema JSONB per versi)
-- [ ] Tabel `submissions` (jawaban JSONB + `schema_version_id` sebagai snapshot)
-- [ ] Tabel `form_integrations` & `submission_integration_logs`
-- [ ] GIN index pada kolom JSONB jawaban
-- [ ] Seed data awal (super admin + form contoh)
-- [ ] Script migrate & rollback, terhubung ke `docker compose`
+_Selesai: 7 Agustus 2026_
+
+- [x] Pasang **Prisma 7.9.1** sebagai ORM + tooling migrasi di `apps/api`
+- [x] Tabel `users`, `roles`, `permissions`, `role_permissions`, `user_roles`
+- [x] Tabel `forms` (kolom `form_key` publik & acak) + `form_versions` (schema JSONB per versi)
+- [x] Tabel `submissions` (jawaban JSONB + `form_version_id` sebagai snapshot)
+- [x] Tabel `integrations`, `notification_rules`, `submission_integration_logs`
+- [x] GIN index (`jsonb_path_ops`) pada `submissions.answers`
+- [x] Seed idempotent: 8 permission, 3 role, 1 user admin (password dari env)
+- [x] `PrismaService`/`PrismaModule` + health check pindah dari `pg.Pool` ke Prisma
+- [x] Service `db-setup` di docker-compose: generate → migrate deploy → seed
+
+**Terverifikasi:**
+
+- `docker compose up` dari kondisi bersih: 12 tabel terbentuk, seed jalan, semua service healthy
+- Seed dijalankan dua kali tidak menghasilkan duplikat (users=1, roles=3, permissions=8,
+  role_permissions=17, user_roles=1)
+- `GET /health` tetap `{"status":"ok"}` — sekarang lewat `prisma.$queryRaw`
+- `pnpm -r typecheck`, `pnpm -r lint`, dan `pnpm --filter @formz/api build` bersih
+
+### Keputusan desain
+
+**ORM: Prisma, bukan TypeORM.** Alasan utamanya:
+
+1. **Migrasi.** Prisma menghasilkan file SQL yang bisa dibaca dan di-review sebelum
+   dijalankan, dengan riwayat yang tercatat di tabel `_prisma_migrations`. Migrasi TypeORM
+   umumnya ditulis tangan atau di-generate dari perbandingan entity, dan lebih rawan
+   menyimpang dari kondisi database sebenarnya.
+2. **JSONB + type safety.** Tiga kolom inti (`form_versions.schema`, `submissions.answers`,
+   `integrations.config`) berbentuk JSONB. Prisma memetakannya ke `Prisma.JsonValue`, yang
+   memaksa penyempitan tipe secara eksplisit — dan penyempitan itu kita lakukan dengan schema
+   Zod dari `@formz/shared`. Jadi satu sumber kebenaran tetap terjaga.
+3. **Tanpa engine Rust.** Prisma 7 memakai query compiler + driver adapter (`@prisma/adapter-pg`).
+   Tidak ada binary engine yang perlu cocok dengan musl/OpenSSL di container Alpine — sumber
+   masalah yang cukup umum di setup self-hosted berbasis Alpine.
+
+Integrasi dengan NestJS tetap rapi lewat `PrismaService extends PrismaClient` yang dipasang
+sebagai provider global — memang tidak se-"NestJS-native" `@nestjs/typeorm`, tapi itu satu
+file, sekali tulis.
+
+**Catatan desain lain:**
+
+- **Primary key UUIDv7** (`uuid(7)`), bukan auto-increment. Untuk `forms` ini wajib karena
+  `form_key` muncul di URL publik dan tidak boleh bisa ditebak; UUIDv7 dipilih karena
+  terurut secara waktu sehingga tidak memfragmentasi index seperti UUIDv4.
+- **`onDelete` sengaja tidak seragam.** `submissions` memakai `Restrict` terhadap `forms` dan
+  `form_versions` — menghapus form yang sudah punya jawaban akan ditolak database, jadi form
+  harus diarsipkan, bukan dihapus. Sebaliknya `integrations`, `notification_rules`, dan
+  `submission_integration_logs` memakai `Cascade` karena tidak punya nilai tanpa induknya.
+- **Idempotency job** ditegakkan di level database lewat
+  `@@unique([submissionId, type, target])` pada `submission_integration_logs`. Worker
+  meng-`upsert` baris ini, jadi retry menaikkan `retry_count` alih-alih menambah baris —
+  ini yang mencegah baris dobel di spreadsheet atau email terkirim dua kali.
+- **`notification_rules` punya dua kolom penerima.** `recipients` (text[]) untuk daftar email
+  tetap, `recipient_rules` (JSONB) untuk tujuan dinamis berdasarkan jawaban. Keduanya bisa
+  dipakai bersamaan dan hasilnya digabung.
+- **Password di-hash dengan bcryptjs** (cost 12) — implementasi JavaScript murni, tanpa
+  binary native, jadi tidak ada langkah kompilasi di Alpine. Bisa ditukar ke argon2id di
+  Part 2 kalau memang diinginkan.
+- **Seed tidak menimpa password** user yang sudah ada. `ADMIN_PASSWORD` hanya dipakai saat
+  user pertama kali dibuat, supaya password yang sudah diganti admin tidak dikembalikan ke
+  nilai `.env` setiap `docker compose up`.
+- **Kredensial integrasi tidak disimpan di database.** `integrations.config` hanya memuat
+  referensi (`credentialRef`); kredensial Google tetap di environment variable.
+
+**Catatan untuk part berikutnya:**
+
+- `apps/worker` masih memakai `pg.Pool` mentah, belum Prisma. Kalau worker nanti perlu akses
+  tabel yang kaya, pertimbangkan memindahkan schema Prisma ke `packages/db` supaya bisa
+  dipakai bersama api dan worker.
+- Belum ada tabel template email; `notification_rules.email_template_id` masih kolom teks
+  biasa dan baru akan menjadi foreign key di Part 8.
+- Belum ada seed form contoh — baru role, permission, dan user admin.
+- `submissions.answers` sudah punya GIN index, tapi belum ada query yang memakainya.
 
 ## ⬜ Part 2 — Auth & RBAC
 

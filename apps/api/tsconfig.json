@@ -3,18 +3,19 @@
   "compilerOptions": {
     "module": "CommonJS",
     "moduleResolution": "Node",
-    "rootDir": "./src",
     "outDir": "./dist",
-    "baseUrl": "./",
     "declaration": false,
+    // Config ini hanya untuk typecheck & editor; yang meng-emit adalah
+    // tsconfig.build.json. noEmit di sini mencegah file .js nyasar ke prisma/.
+    "noEmit": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "isolatedModules": false,
     "strictPropertyInitialization": false,
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "prisma/**/*.ts", "prisma.config.ts"],
   "exclude": ["node_modules", "dist", "test", "**/*.spec.ts"]
 }
