@@ -1,0 +1,15 @@
+# Dokumen referensi arsitektur — biarkan format aslinya apa adanya.
+ARCHITECTURE.md
+
+node_modules
+dist
+build
+coverage
+.next
+.turbo
+.pnpm-store
+pnpm-lock.yaml
+*.log
+apps/embed/dist
+apps/dashboard/.next
+packages/shared/dist

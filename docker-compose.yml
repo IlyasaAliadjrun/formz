@@ -1,0 +1,248 @@
+# Stack development Formz.
+# Semua kredensial dibaca dari file .env di root (lihat .env.example) —
+# tidak ada nilai rahasia yang di-hardcode di file ini.
+name: ${COMPOSE_PROJECT_NAME:-formz}
+
+# ---------------------------------------------------------------------------
+# Template bersama untuk service berbasis Node
+# ---------------------------------------------------------------------------
+x-app-env: &app-env
+  NODE_ENV: ${NODE_ENV:-development}
+  TZ: ${TZ:-UTC}
+
+  # Nama host di bawah ini adalah nama service di jaringan compose,
+  # bukan nilai dari .env (yang dipakai kalau app dijalankan langsung di host).
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB wajib diisi di .env}
+  POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER wajib diisi di .env}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD wajib diisi di .env}
+  POSTGRES_POOL_MAX: ${POSTGRES_POOL_MAX:-10}
+
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD wajib diisi di .env}
+  REDIS_DB: ${REDIS_DB:-0}
+
+  DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:3000}
+  EMBED_URL: ${EMBED_URL:-http://localhost:5173}
+
+  S3_ENDPOINT: http://minio:9000
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${MINIO_BUCKET:-formz-uploads}
+  S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?MINIO_ROOT_USER wajib diisi di .env}
+  S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD wajib diisi di .env}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+
+x-node-service: &node-service
+  build:
+    context: .
+    dockerfile: docker/dev.Dockerfile
+  image: formz-node-dev:local
+  working_dir: /workspace
+  volumes:
+    - .:/workspace
+  networks: [formz]
+
+services:
+  # -------------------------------------------------------------------------
+  # Infrastruktur
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: formz-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB wajib diisi di .env}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER wajib diisi di .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD wajib diisi di .env}
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+      TZ: ${TZ:-UTC}
+    ports:
+      - '${POSTGRES_HOST_PORT:-5432}:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks: [formz]
+
+  redis:
+    image: redis:7-alpine
+    container_name: formz-redis
+    restart: unless-stopped
+    command:
+      [
+        'sh',
+        '-c',
+        'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD" --maxmemory-policy noeviction',
+      ]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD wajib diisi di .env}
+      TZ: ${TZ:-UTC}
+    ports:
+      - '${REDIS_HOST_PORT:-6379}:6379'
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    networks: [formz]
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: formz-minio
+    restart: unless-stopped
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER wajib diisi di .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD wajib diisi di .env}
+      TZ: ${TZ:-UTC}
+    ports:
+      - '${MINIO_API_PORT:-9000}:9000'
+      - '${MINIO_CONSOLE_PORT:-9001}:9001'
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks: [formz]
+
+  # Sekali jalan: bikin bucket upload kalau belum ada.
+  minio-init:
+    image: minio/mc:latest
+    container_name: formz-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-formz-uploads}
+    entrypoint:
+      [
+        'sh',
+        '-c',
+        'mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" && mc mb --ignore-existing "local/$$MINIO_BUCKET" && echo "Bucket $$MINIO_BUCKET siap"',
+      ]
+    restart: 'no'
+    networks: [formz]
+
+  # -------------------------------------------------------------------------
+  # Tahap persiapan (sekali jalan, lalu keluar)
+  # -------------------------------------------------------------------------
+  # Install dependency monorepo. Dipisah jadi service sendiri supaya empat
+  # service app tidak menjalankan pnpm install berbarengan di folder yang sama.
+  deps:
+    <<: *node-service
+    container_name: formz-deps
+    environment:
+      <<: *app-env
+    command: ['sh', '-c', 'pnpm install --frozen-lockfile']
+    restart: 'no'
+
+  # Build @formz/shared ke dist supaya bisa di-import api, worker, dashboard, embed.
+  shared-build:
+    <<: *node-service
+    container_name: formz-shared-build
+    environment:
+      <<: *app-env
+    command: ['sh', '-c', 'pnpm --filter @formz/shared build']
+    depends_on:
+      deps:
+        condition: service_completed_successfully
+    restart: 'no'
+
+  # -------------------------------------------------------------------------
+  # Aplikasi
+  # -------------------------------------------------------------------------
+  api:
+    <<: *node-service
+    container_name: formz-api
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+    command: ['sh', '-c', 'pnpm --filter @formz/api start:dev']
+    ports:
+      - '${API_PORT:-4000}:4000'
+    depends_on:
+      shared-build:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q -O- http://127.0.0.1:4000/health/live || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  worker:
+    <<: *node-service
+    container_name: formz-worker
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+    command: ['sh', '-c', 'pnpm --filter @formz/worker dev']
+    depends_on:
+      shared-build:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  dashboard:
+    <<: *node-service
+    container_name: formz-dashboard
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      NEXT_TELEMETRY_DISABLED: '1'
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+    command: ['sh', '-c', 'pnpm --filter @formz/dashboard dev']
+    ports:
+      - '${DASHBOARD_PORT:-3000}:3000'
+    depends_on:
+      shared-build:
+        condition: service_completed_successfully
+
+  embed:
+    <<: *node-service
+    container_name: formz-embed
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      EMBED_PORT: 5173
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:4000}
+    command: ['sh', '-c', 'pnpm --filter @formz/embed dev']
+    ports:
+      - '${EMBED_PORT:-5173}:5173'
+    depends_on:
+      shared-build:
+        condition: service_completed_successfully
+
+networks:
+  formz:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

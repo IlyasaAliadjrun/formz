@@ -1,0 +1,26 @@
+{
+  "name": "@formz/embed",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Form renderer (Preact + Vite) yang di-embed di website lain",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@formz/shared": "workspace:*",
+    "preact": "^10.29.8",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "^2.10.6",
+    "eslint": "^9.39.5",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.6"
+  }
+}

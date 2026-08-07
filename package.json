@@ -1,0 +1,35 @@
+{
+  "name": "formz",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Form builder self-hosted (pengganti Jotform) — monorepo pnpm workspaces",
+  "packageManager": "pnpm@11.20.0",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel -r dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "shared:build": "pnpm --filter @formz/shared build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f",
+    "docker:rebuild": "docker compose build --no-cache"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.6",
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.20.1",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.9.0",
+    "prettier": "^3.9.6",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.66.0"
+  }
+}

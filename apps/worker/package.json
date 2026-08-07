@@ -1,0 +1,29 @@
+{
+  "name": "@formz/worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Service worker BullMQ: sync Google Sheets & kirim email notifikasi",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "start:prod": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@formz/shared": "workspace:*",
+    "bullmq": "^6.0.9",
+    "dotenv": "^17.2.4",
+    "ioredis": "^5.9.0",
+    "pg": "^8.22.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/pg": "^8.20.4",
+    "tsx": "^4.23.10",
+    "typescript": "^5.9.3"
+  }
+}

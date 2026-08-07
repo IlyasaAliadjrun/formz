@@ -1,0 +1,15 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# Paket yang boleh menjalankan build/postinstall script (pnpm memblokirnya secara default).
+allowBuilds:
+  esbuild: true
+  msgpackr-extract: true
+  unrs-resolver: true
+
+# pnpm menahan versi yang baru rilis; versi di bawah ini sengaja dipakai.
+minimumReleaseAgeExclude:
+  - bullmq@6.0.9
+  - lucide-react@1.29.0
+  - tsx@4.23.10
