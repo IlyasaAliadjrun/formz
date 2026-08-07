@@ -32,6 +32,23 @@ export const envSchema = z.object({
   DASHBOARD_URL: z.string().default('http://localhost:3000'),
   EMBED_URL: z.string().default('http://localhost:5173'),
 
+  // Auth. Dua secret sengaja dipisah supaya access token yang bocor tidak bisa
+  // dipakai untuk menempa refresh token, dan sebaliknya.
+  JWT_SECRET: z.string().min(32, 'JWT_SECRET minimal 32 karakter'),
+  JWT_REFRESH_SECRET: z.string().min(32, 'JWT_REFRESH_SECRET minimal 32 karakter'),
+  // Format durasi ala `ms`: 15m, 7d, 3600. Divalidasi di sini supaya cast tipe
+  // di TokenService punya dasar yang jelas.
+  JWT_EXPIRES_IN: z
+    .string()
+    .regex(/^\d+(ms|s|m|h|d|w|y)?$/, 'Format durasi tidak valid (contoh: 15m, 7d, 3600)')
+    .default('15m'),
+  JWT_REFRESH_EXPIRES_IN: z
+    .string()
+    .regex(/^\d+(ms|s|m|h|d|w|y)?$/, 'Format durasi tidak valid (contoh: 15m, 7d, 3600)')
+    .default('7d'),
+  /** Cost factor bcrypt untuk hash password. */
+  BCRYPT_ROUNDS: z.coerce.number().int().min(10).max(15).default(12),
+
   // Object storage (MinIO / S3-compatible)
   S3_ENDPOINT: z.string().optional(),
   S3_REGION: z.string().default('us-east-1'),

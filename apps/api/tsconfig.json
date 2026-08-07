@@ -1,8 +1,11 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    // node16 (bukan "Node" klasik) supaya field `exports` di package.json
+    // dependency ikut dibaca — @casl/ability menaruh type-nya di sana.
+    // apps/api tidak punya "type": "module", jadi tetap dikompilasi sebagai CommonJS.
+    "module": "node16",
+    "moduleResolution": "node16",
     "outDir": "./dist",
     "declaration": false,
     // Config ini hanya untuk typecheck & editor; yang meng-emit adalah
@@ -12,10 +15,17 @@
     "experimentalDecorators": true,
     "isolatedModules": false,
     "strictPropertyInitialization": false,
+    "types": ["node", "jest"],
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src/**/*.ts", "prisma/**/*.ts", "prisma.config.ts"],
-  "exclude": ["node_modules", "dist", "test", "**/*.spec.ts"]
+  "include": [
+    "src/**/*.ts",
+    "prisma/**/*.ts",
+    "test/**/*.ts",
+    "prisma.config.ts",
+    "jest.config.mjs"
+  ],
+  "exclude": ["node_modules", "dist"]
 }

@@ -30,6 +30,12 @@ x-app-env: &app-env
   DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:3000}
   EMBED_URL: ${EMBED_URL:-http://localhost:5173}
 
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET wajib diisi di .env (openssl rand -hex 32)}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET wajib diisi di .env}
+  JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+  JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+  BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+
   S3_ENDPOINT: http://minio:9000
   S3_REGION: ${S3_REGION:-us-east-1}
   S3_BUCKET: ${MINIO_BUCKET:-formz-uploads}

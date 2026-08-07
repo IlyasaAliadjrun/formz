@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { PERMISSIONS, SYSTEM_ROLES, SYSTEM_ROLE_NAMES } from '@formz/shared';
 import { PrismaPg } from '@prisma/adapter-pg';
 import bcrypt from 'bcryptjs';
 import { config as loadDotenv } from 'dotenv';
@@ -17,48 +18,10 @@ loadDotenv({
 
 const BCRYPT_ROUNDS = 12;
 
-/** Daftar permission dasar. `key` memakai format `resource.action` supaya cocok dengan CASL. */
-const PERMISSIONS: Array<{ key: string; description: string }> = [
-  { key: 'form.create', description: 'Membuat form baru' },
-  { key: 'form.edit', description: 'Mengubah form dan schema-nya' },
-  { key: 'form.delete', description: 'Menghapus atau mengarsipkan form' },
-  { key: 'form.publish', description: 'Mempublish form sehingga bisa diisi publik' },
-  { key: 'submission.view', description: 'Melihat daftar dan detail submission' },
-  { key: 'submission.export', description: 'Mengekspor submission ke xlsx/csv' },
-  { key: 'report.view', description: 'Melihat halaman reporting' },
-  { key: 'user.manage', description: 'Mengelola user, role, dan permission' },
-];
-
-const ALL_PERMISSION_KEYS = PERMISSIONS.map((permission) => permission.key);
-
-/** Role bawaan sistem beserta permission-nya. */
-const ROLES: Array<{ name: string; description: string; permissionKeys: string[] }> = [
-  {
-    name: 'Super Admin',
-    description: 'Akses penuh ke seluruh fitur, termasuk manajemen user dan role',
-    permissionKeys: ALL_PERMISSION_KEYS,
-  },
-  {
-    name: 'Form Manager',
-    description: 'Mengelola form dan submission, tanpa akses manajemen user',
-    permissionKeys: [
-      'form.create',
-      'form.edit',
-      'form.delete',
-      'form.publish',
-      'submission.view',
-      'submission.export',
-      'report.view',
-    ],
-  },
-  {
-    name: 'Viewer',
-    description: 'Hanya bisa melihat submission dan laporan',
-    permissionKeys: ['submission.view', 'report.view'],
-  },
-];
-
-const SUPER_ADMIN_ROLE = 'Super Admin';
+// Katalog permission & role diambil dari @formz/shared supaya isi database,
+// ability CASL di API, dan tampilan menu di dashboard tidak pernah menyimpang.
+const ROLES = SYSTEM_ROLES;
+const SUPER_ADMIN_ROLE = SYSTEM_ROLE_NAMES.SUPER_ADMIN;
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: requireDatabaseUrl() }),
@@ -71,7 +34,7 @@ async function seedPermissions(): Promise<Map<string, string>> {
     const row = await prisma.permission.upsert({
       where: { key: permission.key },
       update: { description: permission.description },
-      create: permission,
+      create: { key: permission.key, description: permission.description },
     });
     byKey.set(row.key, row.id);
   }

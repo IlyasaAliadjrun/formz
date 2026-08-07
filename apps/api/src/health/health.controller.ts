@@ -1,8 +1,12 @@
 import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import type { HealthResponse } from '@formz/shared';
 import type { Response } from 'express';
+import { Public } from '../modules/auth/decorators/public.decorator';
 import { HealthService } from './health.service';
 
+// Health check dipakai oleh Docker healthcheck & monitoring, jadi tidak boleh
+// butuh token. Isinya hanya status koneksi, tidak ada data bisnis.
+@Public()
 @Controller('health')
 export class HealthController {
   constructor(private readonly healthService: HealthService) {}

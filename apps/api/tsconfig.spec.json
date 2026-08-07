@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "jest"],
+    "noEmit": false,
+    // ts-jest hanya mendukung module hybrid (node16) kalau isolatedModules aktif.
+    // Tanpa ini ts-jest memaksa module ke CommonJS klasik, dan resolusi tipe
+    // berbasis field `exports` (dipakai @casl/ability) jadi gagal.
+    "isolatedModules": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

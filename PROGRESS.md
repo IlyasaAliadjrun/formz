@@ -3,13 +3,13 @@
 Catatan progres lintas sesi. Setiap part yang selesai dicentang di sini, lengkap dengan
 tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tanpa menebak-nebak.
 
-**Status saat ini:** Part 1 selesai. Berikutnya: Part 2 (Auth & RBAC).
+**Status saat ini:** Part 2 selesai di sisi API. Berikutnya: Part 3 (Form CRUD & schema engine).
 
 | Part | Judul                                    | Status     |
 | ---- | ---------------------------------------- | ---------- |
 | 0    | Scaffolding & environment development    | ✅ Selesai |
 | 1    | Skema database & lapisan data            | ✅ Selesai |
-| 2    | Auth & RBAC                              | ⬜ Belum   |
+| 2    | Auth & RBAC                              | ✅ Selesai |
 | 3    | Form CRUD & schema engine (API)          | ⬜ Belum   |
 | 4    | Form builder UI (dashboard)              | ⬜ Belum   |
 | 5    | Form renderer & embed                    | ⬜ Belum   |
@@ -135,14 +135,102 @@ file, sekali tulis.
 - Belum ada seed form contoh — baru role, permission, dan user admin.
 - `submissions.answers` sudah punya GIN index, tapi belum ada query yang memakainya.
 
-## ⬜ Part 2 — Auth & RBAC
+## ✅ Part 2 — Auth & RBAC
 
-- [ ] Login/logout, JWT access + refresh token
-- [ ] Hash password + rotasi refresh token
-- [ ] CASL ability factory + guard permission granular per resource
-- [ ] CRUD user & role di API
-- [ ] Halaman login + proteksi route di dashboard
-- [ ] Manajemen user & role di dashboard
+_Selesai: 7 Agustus 2026 (sisi API; UI-nya di Part 4)_
+
+- [x] `POST /admin/auth/login` — email + password ditukar access token + refresh token
+- [x] `POST /admin/auth/refresh` — rotasi token, token lama langsung dicabut
+- [x] `POST /admin/auth/logout` — mencabut refresh token
+- [x] `GET /admin/auth/me` — user + roles + permissions efektif
+- [x] Hash password bcrypt (cost dari `BCRYPT_ROUNDS`) + rotasi refresh token
+- [x] `CaslAbilityFactory` yang membangun ability dari tabel `role_permissions`
+- [x] `@RequirePermission('form.create')` + `PermissionsGuard` global
+- [x] `JwtAuthGuard` global — seluruh endpoint tertutup default, `@Public()` untuk opt-out
+- [x] `GET/POST/PUT/DELETE /admin/users` dengan permission `user.manage`
+- [x] 22 unit & integration test (Jest + supertest)
+- [ ] Halaman login + proteksi route di dashboard → dipindah ke Part 4
+- [ ] Manajemen user & role di dashboard → dipindah ke Part 4
+
+**Terverifikasi (test otomatis, 22 lulus):**
+
+- Login berhasil, password salah, email tidak terdaftar, akun nonaktif
+- Pesan error email-tidak-ada dan password-salah identik (tidak bocor email terdaftar)
+- Endpoint admin tanpa token → 401; skema non-Bearer → 401; token asing → 401
+- Viewer mengakses `/admin/users` → 403; `/admin/auth/me` tetap 200
+- Ability CASL: Super Admin penuh, Viewer terbatas, user nonaktif nihil
+
+**Terverifikasi (curl ke stack yang jalan):**
+
+- Rotasi refresh token bekerja; memakai ulang token lama → 401 dan seluruh sesi dicabut
+- Logout → refresh berikutnya 401
+- Nonaktifkan/hapus Super Admin terakhir ditolak dengan pesan jelas
+- Hapus akun sendiri ditolak
+- `/health` tetap bisa diakses tanpa token
+
+### Keputusan desain
+
+**Guard global, bukan per-controller.** `JwtAuthGuard` dan `PermissionsGuard` dipasang
+lewat `APP_GUARD` di AppModule, urutannya autentikasi dulu baru otorisasi. Artinya setiap
+endpoint baru tertutup secara default dan harus menyatakan diri lewat `@Public()` kalau
+memang mau terbuka — kebalikan dari pola "pasang guard satu per satu" yang gagal terbuka
+begitu ada controller yang lupa didekorasi.
+
+Sebagai lapis tambahan, `@Public()` **ditolak** pada path `/admin/*` kecuali dua endpoint
+di allowlist `ADMIN_ROUTES_WITHOUT_TOKEN` (login & refresh). Jadi namespace admin tidak bisa
+terbuka karena kelalaian, sesuai syarat "semua endpoint /admin wajib lewat guard auth".
+
+**Refresh token di Redis, bukan tabel Postgres.** Butuh TTL otomatis dan penghapusan cepat —
+persis peran Redis sebagai penyimpan session di ARCHITECTURE.md bagian 3.4. Skemanya:
+`auth:refresh:<jti>` → userId, plus set `auth:sessions:<userId>` berisi seluruh jti aktif
+untuk keperluan cabut-semua. Redis di compose sudah `appendonly yes`, jadi sesi tidak hilang
+saat container restart.
+
+**Deteksi pemakaian ulang refresh token.** Kalau sebuah refresh token lolos verifikasi
+kriptografis tapi jti-nya sudah tidak ada di Redis, berarti token itu sudah pernah dipakai —
+indikasi token dicuri. Yang dilakukan bukan sekadar menolak request itu, tapi mencabut
+**seluruh** sesi user tersebut.
+
+**Permission dibaca dari database tiap request, tidak dititipkan di JWT.** Konsekuensinya
+ada satu query per request admin, tapi pencabutan role berlaku seketika alih-alih menunggu
+access token kedaluwarsa. Kalau nanti jadi bottleneck, cache Redis pendek bisa ditambahkan
+di `UserPermissionsService` tanpa mengubah pemanggilnya.
+
+**Katalog permission dipindah ke `@formz/shared`.** File `packages/shared/src/rbac.ts` dari
+Part 0 masih berisi tebakan (`super_admin`, `PERMISSION_SUBJECTS`) yang tidak cocok dengan
+isi database hasil seed Part 1. Sekarang isinya katalog sebenarnya: 8 permission lengkap
+dengan terjemahan CASL-nya (`form.create` → action `create` pada subject `Form`) dan
+3 definisi role. `prisma/seed.ts` mengimpor dari sana, jadi isi database, ability di API,
+dan menu di dashboard tidak bisa lagi menyimpang satu sama lain.
+
+**Perubahan akses mencabut sesi.** Mengganti role, password, atau menonaktifkan user otomatis
+memanggil `revokeAllSessions` — tanpa itu, user yang baru diturunkan hak aksesnya masih bisa
+memakai refresh token lamanya selama 7 hari.
+
+**Pengaman anti-terkunci.** Super Admin aktif terakhir tidak bisa dihapus, dinonaktifkan,
+atau dicabut role-nya; menghapus akun sendiri juga ditolak. Tanpa ini satu klik keliru bisa
+membuat sistem tidak punya administrator sama sekali.
+
+**Validasi pakai Zod, bukan class-validator.** `ZodValidationPipe` memakai schema yang sama
+dengan yang dipakai form builder dan form renderer lewat `@formz/shared` — satu definisi,
+tiga tempat pemakaian, sesuai ARCHITECTURE.md bagian 3.2.
+
+**Tanpa Passport.js.** ARCHITECTURE.md menyebutnya sebagai opsi, bukan keharusan. `@nestjs/jwt`
+plus satu guard sudah mencukupi dan menghemat tiga dependency; logika yang dibutuhkan
+(muat user, cek `isActive`, muat permission) tetap harus ditulis sendiri di strategi Passport.
+
+**Catatan untuk part berikutnya:**
+
+- `moduleResolution` di `apps/api` dinaikkan ke `node16` supaya field `exports` milik
+  `@casl/ability` terbaca. `tsconfig.spec.json` karenanya perlu `isolatedModules: true`.
+- Access token yang sudah terbit tetap sah sampai kedaluwarsa walau user sudah logout —
+  konsekuensi JWT stateless, dan alasan TTL-nya dibuat 15 menit. Kalau butuh pencabutan
+  seketika, tambahkan denylist jti di Redis.
+- Belum ada rate limit di endpoint login (brute-force). Masuk akal digabung dengan rate limit
+  endpoint publik di Part 6.
+- Belum ada CRUD role/permission — baru user. Role masih dikelola lewat seed.
+- `GET /admin/users` sudah paginated, tapi belum ada endpoint untuk mengganti password sendiri
+  (self-service), baru admin yang bisa mengganti password user lain.
 
 ## ⬜ Part 3 — Form CRUD & schema engine (API)
 
@@ -155,6 +243,8 @@ file, sekali tulis.
 
 ## ⬜ Part 4 — Form builder UI (dashboard)
 
+- [ ] Halaman login + proteksi route (dipindah dari Part 2)
+- [ ] Manajemen user & role di dashboard (dipindah dari Part 2)
 - [ ] Registry field type (satu komponen per field type)
 - [ ] Drag & drop susun + reorder field (dnd-kit)
 - [ ] Panel properti field (label, validasi, opsi)
