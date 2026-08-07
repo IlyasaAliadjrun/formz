@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { Providers } from './providers';
 
 export const metadata: Metadata = {
   title: 'Formz — Admin Dashboard',
@@ -13,7 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="id" suppressHydrationWarning>
-      <body className="min-h-svh antialiased">{children}</body>
+      <body className="min-h-svh antialiased">
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

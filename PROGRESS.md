@@ -3,7 +3,7 @@
 Catatan progres lintas sesi. Setiap part yang selesai dicentang di sini, lengkap dengan
 tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tanpa menebak-nebak.
 
-**Status saat ini:** Part 3 selesai di sisi API. Berikutnya: Part 4 (Form builder UI).
+**Status saat ini:** Part 4 selesai. Berikutnya: Part 5 (Form renderer & embed).
 
 | Part | Judul                                    | Status     |
 | ---- | ---------------------------------------- | ---------- |
@@ -11,7 +11,7 @@ tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tan
 | 1    | Skema database & lapisan data            | ✅ Selesai |
 | 2    | Auth & RBAC                              | ✅ Selesai |
 | 3    | Form CRUD & schema engine (API)          | ✅ Selesai |
-| 4    | Form builder UI (dashboard)              | ⬜ Belum   |
+| 4    | Form builder UI (dashboard)              | ✅ Selesai |
 | 5    | Form renderer & embed                    | ⬜ Belum   |
 | 6    | Submission management                    | ⬜ Belum   |
 | 7    | Integrasi Google Sheets (queue + worker) | ⬜ Belum   |
@@ -330,17 +330,91 @@ membuat revisi schema, dan pengecekan CORS nanti tidak perlu memuat schema.
 - Validasi **jawaban** terhadap aturan validasi field (required, minLength, pattern, dst)
   belum ada — itu bagian dari Part 6 saat submit diproses.
 
-## ⬜ Part 4 — Form builder UI (dashboard)
+## ✅ Part 4 — Form builder UI (dashboard)
 
-- [ ] Halaman login + proteksi route (dipindah dari Part 2)
-- [ ] Manajemen user & role di dashboard (dipindah dari Part 2)
-- [ ] Registry field type (satu komponen per field type)
-- [ ] Drag & drop susun + reorder field (dnd-kit)
-- [ ] Panel properti field (label, validasi, opsi)
-- [ ] Condition builder show/hide sampai level opsi
-- [ ] State management builder (Zustand)
-- [ ] Preview form + simpan sebagai draft/publish
-- [ ] Pengaturan form: pesan sukses, redirect, whitelist domain embed
+_Selesai: 7 Agustus 2026_
+
+- [x] Halaman login + proteksi route (dipindah dari Part 2)
+- [x] Halaman `/forms` — tabel judul/status/tanggal update/jumlah submission,
+      filter status, pencarian, pagination, klik baris masuk builder
+- [x] Registry field type — daftar tombol tambah field digenerate dari `FIELD_TYPES`
+- [x] Drag & drop reorder field dengan dnd-kit (pointer + keyboard sensor)
+- [x] Panel properti per tipe — atribut validasi mengikuti `validationAttributes`
+- [x] Condition builder show/hide, termasuk memilih opsi spesifik sebagai nilai
+- [x] Editor opsi dengan kondisi tampil per opsi
+- [x] State management builder (Zustand)
+- [x] Preview form real-time memakai `evaluateConditions` dari `@formz/shared`
+- [x] Save Draft + Publish dengan dialog konfirmasi
+- [x] Halaman `/forms/:id/embed` — formKey, snippet iframe & script, whitelist domain
+- [x] React Query di semua halaman dengan loading & error state eksplisit
+- [ ] Manajemen user & role di dashboard → dipindah ke Part 9
+
+**Terverifikasi (Playwright, 22 pemeriksaan lolos, 0 error konsol):**
+
+- `/forms` tanpa sesi mengarahkan ke `/login`; login berhasil mengarahkan balik
+- Tambah 3 field dari daftar tipe → muncul di panel kiri dan langsung terender di preview
+- Ubah label di panel kanan → berubah seketika di preview dan daftar field
+- Condition builder: memilih field acuan bertipe dropdown membuat kolom nilai
+  berubah jadi daftar opsi field itu (Konsultasi/Implementasi), bukan teks bebas
+- Memilih opsi pemicu di preview membuat field tersembunyi langsung muncul
+- Drag & drop mengubah urutan field
+- Save Draft memunculkan notifikasi; Publish menampilkan dialog konfirmasi yang
+  menyebut versi baru, lalu berhasil membuat versi
+- Halaman embed menampilkan formKey dan dua snippet; domain
+  `https://Klien.Example.com/kontak` tersimpan sebagai `klien.example.com`
+
+`pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test` (79 test), `format:check`,
+dan `next build` produksi semuanya bersih.
+
+### Keputusan desain
+
+**Login dikerjakan lebih dulu karena tanpa itu tidak ada halaman yang bisa jalan.**
+Semua endpoint `/admin/*` menuntut JWT sejak Part 2, jadi halaman form tidak punya
+cara memuat data tanpa sesi. Item ini memang sudah tercatat di Part 4 sejak Part 2.
+
+**Token disimpan di localStorage, bukan cookie httpOnly.** Alasannya API dan dashboard
+berada di origin berbeda, dan sesi harus bertahan saat halaman di-reload. Risikonya
+token terbaca skrip di origin dashboard — dashboard tidak pernah merender konten pihak
+ketiga, dan form renderer (yang dipasang di website orang lain) sengaja jadi aplikasi
+terpisah tanpa token sama sekali. Cookie httpOnly dicatat sebagai pengerasan Part 10.
+
+**Refresh token diputar lewat satu promise bersama.** Beberapa request yang bersamaan
+kena 401 hanya memicu satu kali refresh; tanpa ini request paralel saling membatalkan
+karena server memutar refresh token setiap dipakai dan pemakaian ulang memicu
+pencabutan seluruh sesi.
+
+**Preview memakai `evaluateConditions` yang sama dengan server.** Bukan tiruan logika
+di sisi UI. Konsekuensinya apa yang terlihat di preview adalah perilaku sebenarnya —
+kalau evaluator berubah, preview ikut berubah tanpa perlu disinkronkan.
+
+**Schema disimpan di satu store Zustand.** Ketiga panel membaca sumber yang sama, jadi
+preview real-time hanyalah render ulang dari state, bukan salinan yang perlu disamakan.
+
+**Menghapus field ikut membersihkan rule yang menunjuknya.** Tanpa itu schema langsung
+jadi tidak valid begitu sebuah field dihapus, dan pengguna harus mencari sendiri rule
+mana yang rusak.
+
+**Publish menyimpan draft dulu kalau ada perubahan.** Server mem-publish draft yang
+tersimpan, jadi tanpa langkah ini yang terpublish bukan yang terlihat di layar.
+
+**Select memakai elemen `<select>` bawaan, bukan Radix Select.** Panel properti berisi
+belasan dropdown kecil; listbox custom di semuanya menambah bundle tanpa manfaat nyata,
+sementara select bawaan sudah aksesibel dan lebih baik di mobile. Radix tetap dipakai
+untuk Dialog, Checkbox, Switch, Label, dan Separator yang memang butuh perilaku khusus.
+
+**Catatan untuk part berikutnya:**
+
+- **`next build` wajib jalan dengan `NODE_ENV=production`.** Container dev compose
+  menyetel `NODE_ENV=development`, dan itu membuat `next build` memuat React build
+  development lalu gagal saat prerender `/_global-error` dengan pesan yang menyesatkan
+  (`Cannot read properties of null (reading 'useContext')`). Script `build` di
+  `apps/dashboard/package.json` sekarang menyetelnya sendiri, jadi masalah ini tidak
+  bisa terulang — penting diingat saat menulis Dockerfile produksi di Part 10.
+- Belum ada auto-save; perubahan hilang kalau halaman ditutup tanpa Save Draft.
+  Indikator "Belum disimpan" sudah ada, tapi belum ada konfirmasi saat meninggalkan halaman.
+- Belum ada undo/redo di builder.
+- Halaman manajemen user & role belum dibuat (API-nya sudah siap sejak Part 2).
+- Snippet script tag sudah ditampilkan, tapi `embed.js` sendiri baru dibuat di Part 5.
 
 ## ⬜ Part 5 — Form renderer & embed
 
@@ -387,6 +461,7 @@ membuat revisi schema, dan pengecekan CORS nanti tidak perlu memuat schema.
 
 ## ⬜ Part 9 — Reporting & export
 
+- [ ] Manajemen user & role di dashboard (dipindah dari Part 4)
 - [ ] Query agregasi + materialized view untuk report berat
 - [ ] Jadwal refresh materialized view
 - [ ] Chart ringkasan submission (Recharts)

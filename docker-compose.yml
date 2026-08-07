@@ -252,6 +252,7 @@ services:
       HOSTNAME: 0.0.0.0
       NEXT_TELEMETRY_DISABLED: '1'
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000}
+      NEXT_PUBLIC_EMBED_URL: ${EMBED_URL:-http://localhost:5173}
     command: ['sh', '-c', 'pnpm --filter @formz/dashboard dev']
     ports:
       - '${DASHBOARD_PORT:-3000}:3000'

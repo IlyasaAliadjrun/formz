@@ -14,3 +14,6 @@ apps/embed/dist
 apps/dashboard/.next
 packages/shared/dist
 apps/api/src/generated
+
+# Di-generate ulang oleh `next build`, jangan diformat.
+apps/dashboard/next-env.d.ts

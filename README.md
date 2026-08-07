@@ -126,7 +126,7 @@ Lalu buka di browser:
 
 | URL                          | Isi                                        |
 | ---------------------------- | ------------------------------------------ |
-| http://localhost:3000        | Admin dashboard (placeholder)              |
+| http://localhost:3000        | Admin dashboard (login, form builder)      |
 | http://localhost:5173        | Form renderer (placeholder)                |
 | http://localhost:4000/health | Health check API                           |
 | http://localhost:9001        | MinIO console (login pakai `MINIO_ROOT_*`) |
@@ -161,6 +161,21 @@ docker compose run --rm deps pnpm format
 # Typecheck seluruh monorepo
 docker compose run --rm deps pnpm typecheck
 ```
+
+### Dashboard
+
+Buka http://localhost:3000 lalu login dengan `ADMIN_EMAIL` + `ADMIN_PASSWORD` dari `.env`.
+
+| Halaman            | Isi                                                    |
+| ------------------ | ------------------------------------------------------ |
+| `/forms`           | Daftar form: status, tanggal update, jumlah submission |
+| `/forms/:id/edit`  | Form builder tiga panel: field, preview, properti      |
+| `/forms/:id/embed` | formKey, snippet iframe & script tag, whitelist domain |
+
+Catatan: `next build` di app dashboard menyetel `NODE_ENV=production` sendiri lewat
+script-nya. Ini disengaja — container dev compose menyetel `NODE_ENV=development`, dan
+membangun Next.js dengan nilai itu membuat React build development ikut termuat lalu
+gagal saat prerender dengan pesan yang menyesatkan.
 
 ### Database (Prisma)
 
@@ -253,7 +268,8 @@ docker compose up
 
 | Layer          | Teknologi                                           |
 | -------------- | --------------------------------------------------- |
-| Dashboard      | Next.js 16, React 19, Tailwind CSS 4, shadcn/ui     |
+| Dashboard      | Next.js 16, React 19, Tailwind 4, shadcn/ui         |
+| Dashboard data | TanStack Query 5, Zustand 5, dnd-kit                |
 | Form renderer  | Preact 10, Vite 7                                   |
 | API            | NestJS 11, TypeScript 5.9                           |
 | ORM            | Prisma 7 (driver adapter `pg`, tanpa engine Rust)   |
