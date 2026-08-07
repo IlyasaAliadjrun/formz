@@ -45,6 +45,12 @@ export interface PermissionDefinition {
 
 export const PERMISSIONS = [
   {
+    key: 'form.view',
+    action: 'read',
+    subject: 'Form',
+    description: 'Melihat daftar dan detail form',
+  },
+  {
     key: 'form.create',
     action: 'create',
     subject: 'Form',
@@ -141,6 +147,7 @@ export const SYSTEM_ROLES: readonly RoleDefinition[] = [
     name: SYSTEM_ROLE_NAMES.FORM_MANAGER,
     description: 'Mengelola form dan submission, tanpa akses manajemen user',
     permissionKeys: [
+      'form.view',
       'form.create',
       'form.edit',
       'form.delete',
@@ -152,8 +159,8 @@ export const SYSTEM_ROLES: readonly RoleDefinition[] = [
   },
   {
     name: SYSTEM_ROLE_NAMES.VIEWER,
-    description: 'Hanya bisa melihat submission dan laporan',
-    permissionKeys: ['submission.view', 'report.view'],
+    description: 'Hanya bisa melihat form, submission, dan laporan',
+    permissionKeys: ['form.view', 'submission.view', 'report.view'],
   },
 ];
 

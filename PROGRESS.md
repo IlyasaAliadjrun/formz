@@ -3,14 +3,14 @@
 Catatan progres lintas sesi. Setiap part yang selesai dicentang di sini, lengkap dengan
 tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tanpa menebak-nebak.
 
-**Status saat ini:** Part 2 selesai di sisi API. Berikutnya: Part 3 (Form CRUD & schema engine).
+**Status saat ini:** Part 3 selesai di sisi API. Berikutnya: Part 4 (Form builder UI).
 
 | Part | Judul                                    | Status     |
 | ---- | ---------------------------------------- | ---------- |
 | 0    | Scaffolding & environment development    | ✅ Selesai |
 | 1    | Skema database & lapisan data            | ✅ Selesai |
 | 2    | Auth & RBAC                              | ✅ Selesai |
-| 3    | Form CRUD & schema engine (API)          | ⬜ Belum   |
+| 3    | Form CRUD & schema engine (API)          | ✅ Selesai |
 | 4    | Form builder UI (dashboard)              | ⬜ Belum   |
 | 5    | Form renderer & embed                    | ⬜ Belum   |
 | 6    | Submission management                    | ⬜ Belum   |
@@ -232,14 +232,103 @@ plus satu guard sudah mencukupi dan menghemat tiga dependency; logika yang dibut
 - `GET /admin/users` sudah paginated, tapi belum ada endpoint untuk mengganti password sendiri
   (self-service), baru admin yang bisa mengganti password user lain.
 
-## ⬜ Part 3 — Form CRUD & schema engine (API)
+## ✅ Part 3 — Form CRUD & schema engine (API)
 
-- [ ] CRUD form (admin, butuh auth + RBAC)
-- [ ] Versioning schema: bikin versi baru saat form yang sudah punya submission diedit
-- [ ] Validasi schema form pakai Zod dari `@formz/shared`
-- [ ] Endpoint publik `GET /public/forms/:formKey/schema` (read-only, data minimal)
-- [ ] Cache schema form di Redis + invalidasi saat form diupdate
-- [ ] Publish/unpublish/archive form
+_Selesai: 7 Agustus 2026_
+
+- [x] Katalog 13 field type di `@formz/shared` beserta atribut per tipe
+      (`FIELD_TYPE_DEFINITIONS`: producesAnswer, requiresOptions, answerKind, validationAttributes)
+- [x] Struktur JSON schema form: daftar field berurut + validasi per tipe + conditional visibility
+- [x] `evaluateConditions(schema, currentAnswers)` + `getEffectiveAnswers()` di `@formz/shared`
+- [x] `validateFormSchema()` — id unik, referensi kondisi, siklus, rentang validasi
+- [x] `GET /admin/forms` — pagination + filter status + pencarian judul (`form.view`)
+- [x] `POST /admin/forms` — status default `draft` (`form.create`)
+- [x] `GET /admin/forms/:id` — detail termasuk draft schema + hasil validasi (`form.view`)
+- [x] `PUT /admin/forms/:id` — simpan draft, tidak membuat versi baru (`form.edit`)
+- [x] `POST /admin/forms/:id/publish` — baris baru di `form_versions` (`form.publish`)
+- [x] `DELETE /admin/forms/:id` — arsip kalau ada submission, hapus permanen kalau belum (`form.delete`)
+- [x] `PUT /admin/forms/:id/embed-settings` — whitelist domain (`form.edit`)
+- [x] Permission baru `form.view` ditambahkan ke katalog & seed
+- [x] 36 test di `@formz/shared` + 15 test endpoint form di `apps/api`
+
+**Terverifikasi:**
+
+- Siklus hidup penuh lewat HTTP: buat → simpan draft → publish v1 → edit → publish v2.
+  Isi `form_versions` menunjukkan tiga baris utuh dengan judul berbeda — versi lama
+  tidak pernah tertimpa.
+- Publish form kosong ditolak (`no_input_fields`); publish schema dengan kondisi menunjuk
+  field tidak ada ditolak (`unknown_condition_field`) — sementara **menyimpan draft**-nya
+  tetap boleh, karena builder harus bisa menyimpan pekerjaan setengah jadi.
+- `DELETE` pada form tanpa submission menghapus permanen (GET berikutnya 404); pada form
+  dengan submission mengubah status jadi `archived` dan submission tetap utuh.
+- Whitelist embed dinormalkan: `https://Klien.Example.com/kontak` → `klien.example.com`.
+- Viewer (hanya `form.view`) bisa membaca tapi ditolak 403 saat create/edit/delete;
+  Editor tanpa `form.publish` ditolak 403 saat publish.
+- `pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test` (79 test), dan `format:check` bersih.
+
+### Keputusan desain
+
+**Draft disimpan sebagai baris `form_versions` dengan `published_at` NULL.** Tidak ada kolom
+`draft_schema` baru di tabel `forms`, jadi tidak perlu migrasi — kolom `published_at` yang
+nullable dari Part 1 memang sudah dirancang untuk ini. Alurnya: `PUT` menimpa baris draft yang
+sama (tidak menambah versi), `publish` menstempel `published_at` pada baris itu, dan `PUT`
+berikutnya membuat baris draft baru dengan nomor versi berikutnya — salinan dari versi
+terpublish terakhir. Hasilnya persis seperti yang diminta: mengedit tidak pernah membuat versi,
+publish selalu membuat versi, dan versi lama tidak pernah ditimpa.
+
+**Struktur field datar, bukan bersarang per halaman.** Urutan field ditentukan urutan array
+`fields` — tidak ada kolom `order` terpisah yang bisa menyimpang dari urutan sebenarnya.
+Pembagian bagian dilakukan lewat field `section_heading`, sesuai permintaan.
+
+**Kondisi disimpan deklaratif, JSON Logic sebagai keluaran.** ARCHITECTURE.md menyebut
+"JSON Logic based", tapi menyimpan pohon JSON Logic mentah membuat condition builder visual
+sulit dibuat — pohon `{"and":[{"==":[...]}]}` tidak bisa dipetakan balik ke baris-baris UI
+dengan andal. Yang disimpan adalah bentuk deklaratif dari contoh di ARCHITECTURE.md
+(`action` + `logic` + `rules`), dan `conditionsToJsonLogic()` mengonversinya ke JSON Logic asli
+untuk portabilitas. Evaluator sendiri ditulis tanpa dependensi.
+
+**Evaluator berulang sampai stabil, bukan sekali jalan.** Visibilitas berantai: kalau A
+menyembunyikan B, jawaban B harus dianggap kosong sehingga C yang bergantung pada B ikut
+tersembunyi. Sekali jalan akan salah untuk rantai ini. Evaluasi diulang sampai hasilnya tidak
+berubah, dengan batas iterasi supaya kondisi melingkar tidak menggantung.
+
+**Validasi memisahkan error dan warning.** Error menghalangi publish (id dobel, referensi
+kondisi ke field yang tidak ada, siklus, regex tidak valid). Warning tidak (misalnya kondisi
+yang menunjuk field di bawahnya — tidak terlarang di form satu halaman, tapi hampir selalu
+tidak disengaja). Tanpa pemisahan ini, validator akan terasa rewel dan orang akan mencari
+cara mengakalinya.
+
+**`getEffectiveAnswers()` disediakan sejak sekarang.** Fungsi ini membuang jawaban milik
+field tersembunyi dan opsi tersembunyi — inilah yang akan dipakai endpoint submit di Part 6
+untuk menutup celah yang disebut ARCHITECTURE.md bagian 6 poin 2 (orang mengirim jawaban ke
+field yang seharusnya tersembunyi lewat manipulasi request).
+
+**Katalog field type Part 0 diganti seluruhnya.** Daftar lama (`short_text`, `long_text`,
+`multi_select`, `file`, `heading`, `paragraph`, `divider`, `page_break`, `yes_no`, `rating`,
+`signature`, `hidden`, `url`, `time`) adalah tebakan yang ditulis sebelum spesifikasi ada.
+Sekarang isinya persis 13 tipe yang diminta. Tidak ada migrasi database karena schema form
+disimpan sebagai JSONB, dan belum ada satu pun form tersimpan saat perubahan ini dibuat.
+
+**`form.view` ditambahkan ke katalog permission.** Part 2 hanya punya `form.create/edit/
+delete/publish` — tidak ada permission untuk sekadar _membaca_ form. Tanpa itu, Viewer yang
+seharusnya bisa melihat submission tidak bisa membuka daftar formnya. `form.view` diberikan
+ke ketiga role bawaan.
+
+**Whitelist domain hanya di kolom `forms.allowed_domains`, tidak di dalam schema JSON.**
+Kalau ada di dua tempat, keduanya akan menyimpang. Kolom dipilih karena bisa diubah tanpa
+membuat revisi schema, dan pengecekan CORS nanti tidak perlu memuat schema.
+
+**Catatan untuk part berikutnya:**
+
+- Endpoint publik `GET /public/forms/:formKey/schema` dan cache Redis-nya **belum dibuat** —
+  dipindah ke Part 5 (form renderer & embed), tempat keduanya benar-benar dipakai.
+- Belum ada endpoint melihat riwayat versi atau mengembalikan (rollback) ke versi lama.
+  Datanya sudah tersimpan lengkap, tinggal endpoint-nya.
+- Publish pada form yang diarsipkan akan mengembalikannya ke status `published`
+  (berfungsi sebagai restore). Belum ada endpoint unarchive khusus.
+- `evaluateConditions` sudah siap dipakai embed, tapi `apps/embed` belum mengimpornya.
+- Validasi **jawaban** terhadap aturan validasi field (required, minLength, pattern, dst)
+  belum ada — itu bagian dari Part 6 saat submit diproses.
 
 ## ⬜ Part 4 — Form builder UI (dashboard)
 
@@ -255,6 +344,8 @@ plus satu guard sudah mencukupi dan menghemat tiga dependency; logika yang dibut
 
 ## ⬜ Part 5 — Form renderer & embed
 
+- [ ] Endpoint publik `GET /public/forms/:formKey/schema` (dipindah dari Part 3)
+- [ ] Cache schema form di Redis + invalidasi saat publish (dipindah dari Part 3)
 - [ ] Route `/f/:formKey` mengambil schema publik
 - [ ] Render semua field type sesuai registry
 - [ ] Evaluasi conditional show/hide di client

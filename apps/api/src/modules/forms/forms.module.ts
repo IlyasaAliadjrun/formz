@@ -1,14 +1,15 @@
 import { Module } from '@nestjs/common';
+import { FormsController } from './forms.controller';
+import { FormsService } from './forms.service';
 
 /**
  * CRUD form + versioning schema (JSONB di PostgreSQL).
- * Rencana isi: FormsController (admin), PublicFormsController (embed),
- * FormsService, FormVersionsService.
+ * Endpoint publik untuk form renderer (GET /public/forms/:formKey/schema)
+ * menyusul di part embed.
  */
 @Module({
-  imports: [],
-  controllers: [],
-  providers: [],
-  exports: [],
+  controllers: [FormsController],
+  providers: [FormsService],
+  exports: [FormsService],
 })
 export class FormsModule {}

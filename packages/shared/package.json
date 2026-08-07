@@ -20,12 +20,17 @@
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
+    "test": "jest",
+    "test:watch": "jest --watch",
     "clean": "rm -rf dist"
   },
   "dependencies": {
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.12",
     "typescript": "^5.9.3"
   }
 }
