@@ -167,11 +167,13 @@ docker compose run --rm deps pnpm typecheck
 
 Buka http://localhost:3000 lalu login dengan `ADMIN_EMAIL` + `ADMIN_PASSWORD` dari `.env`.
 
-| Halaman            | Isi                                                    |
-| ------------------ | ------------------------------------------------------ |
-| `/forms`           | Daftar form: status, tanggal update, jumlah submission |
-| `/forms/:id/edit`  | Form builder tiga panel: field, preview, properti      |
-| `/forms/:id/embed` | formKey, snippet iframe & script tag, whitelist domain |
+| Halaman                              | Isi                                                        |
+| ------------------------------------ | ---------------------------------------------------------- |
+| `/forms`                             | Daftar form: status, tanggal update, jumlah submission     |
+| `/forms/:id/edit`                    | Form builder tiga panel: field, preview, properti          |
+| `/forms/:id/submissions`             | Tabel jawaban, filter tanggal, ekspor Excel/CSV            |
+| `/forms/:id/submissions/:submission` | Detail jawaban per field + status integrasi per submission |
+| `/forms/:id/embed`                   | formKey, snippet iframe & script tag, whitelist domain     |
 
 ### Memasang form di website lain
 

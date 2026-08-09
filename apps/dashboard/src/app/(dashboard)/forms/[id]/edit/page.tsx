@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import type { FieldType, SchemaIssue } from '@formz/shared';
-import { AlertCircle, ArrowLeft, CheckCircle2, Code2, Loader2, Save, Upload } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, Save, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { AddFieldMenu } from '@/components/builder/add-field-menu';
 import { ConditionBuilder } from '@/components/builder/condition-builder';
@@ -13,6 +13,7 @@ import { FormPreview } from '@/components/builder/form-preview';
 import { PropertyEditor } from '@/components/builder/property-editor';
 import { PublishDialog } from '@/components/builder/publish-dialog';
 import { FormStatusBadge } from '@/components/forms/form-status-badge';
+import { FormTabs } from '@/components/forms/form-tabs';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -201,12 +202,7 @@ export default function FormBuilderPage() {
               </span>
             )}
 
-            <Button variant="outline" size="sm" asChild>
-              <Link href={`/forms/${formId}/embed`}>
-                <Code2 />
-                Embed
-              </Link>
-            </Button>
+            <FormTabs formId={formId} />
 
             <Button
               variant="outline"

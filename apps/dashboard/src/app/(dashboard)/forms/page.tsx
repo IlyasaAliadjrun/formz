@@ -205,12 +205,20 @@ export default function FormListPage() {
                     </TableCell>
 
                     <TableCell onClick={(event) => event.stopPropagation()}>
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/forms/${form.id}/embed`}>
-                          <Code2 />
-                          Embed
-                        </Link>
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link href={`/forms/${form.id}/submissions`}>
+                            <Inbox />
+                            Submission
+                          </Link>
+                        </Button>
+                        <Button variant="ghost" size="sm" asChild>
+                          <Link href={`/forms/${form.id}/embed`}>
+                            <Code2 />
+                            Embed
+                          </Link>
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

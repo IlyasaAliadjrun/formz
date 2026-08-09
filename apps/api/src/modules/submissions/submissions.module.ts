@@ -1,14 +1,18 @@
 import { Module } from '@nestjs/common';
+import { SubmissionExportService } from './submission-export.service';
+import { SubmissionsController } from './submissions.controller';
+import { SubmissionsService } from './submissions.service';
 
 /**
- * Penerimaan submit publik + pembacaan submission dari dashboard.
- * Rencana isi: SubmissionsController (admin), PublicSubmitController (embed),
- * SubmissionsService, dan enqueue job sync sheet/email ke BullMQ.
+ * Pembacaan submission dari dashboard (/admin/submissions).
+ *
+ * Penerimaan submit publik tinggal di PublicModule, bukan di sini — dua sisi itu
+ * sengaja tidak berbagi controller supaya tidak ada jalur dari form yang
+ * di-embed ke data submission milik orang lain.
  */
 @Module({
-  imports: [],
-  controllers: [],
-  providers: [],
-  exports: [],
+  controllers: [SubmissionsController],
+  providers: [SubmissionsService, SubmissionExportService],
+  exports: [SubmissionsService],
 })
 export class SubmissionsModule {}

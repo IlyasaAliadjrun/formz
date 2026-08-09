@@ -7,6 +7,7 @@ import { AlertCircle, ArrowLeft, Globe, Loader2, Plus, Save, Trash2 } from 'luci
 import { toast } from 'sonner';
 import { CopyButton } from '@/components/forms/copy-button';
 import { FormStatusBadge } from '@/components/forms/form-status-badge';
+import { FormTabs } from '@/components/forms/form-tabs';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -107,20 +108,24 @@ export default function EmbedSettingsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-      <header className="flex items-start gap-3">
-        <Button variant="ghost" size="icon" asChild aria-label="Kembali ke builder">
-          <Link href={`/forms/${formId}/edit`}>
-            <ArrowLeft />
-          </Link>
-        </Button>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <Button variant="ghost" size="icon" asChild aria-label="Kembali ke builder">
+            <Link href={`/forms/${formId}/edit`}>
+              <ArrowLeft />
+            </Link>
+          </Button>
 
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Pengaturan Embed</h1>
-          <div className="mt-1 flex items-center gap-2">
-            <span className="text-muted-foreground text-sm">{form.title}</span>
-            <FormStatusBadge status={form.status} />
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">Pengaturan Embed</h1>
+            <div className="mt-1 flex items-center gap-2">
+              <span className="text-muted-foreground text-sm">{form.title}</span>
+              <FormStatusBadge status={form.status} />
+            </div>
           </div>
         </div>
+
+        <FormTabs formId={formId} />
       </header>
 
       {form.status !== 'published' && (

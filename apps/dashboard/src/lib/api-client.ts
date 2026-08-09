@@ -98,7 +98,12 @@ function extractMessage(payload: unknown, fallback: string): string {
   return fallback;
 }
 
-async function send<T>(path: string, options: RequestOptions, retry = true): Promise<T> {
+/**
+ * Satu jalur request untuk semua pemanggil, termasuk yang mengunduh berkas.
+ * Rotasi token saat 401 hanya ditulis di sini supaya unduhan ekspor tidak
+ * diam-diam kehilangan perilaku itu.
+ */
+async function sendRaw(path: string, options: RequestOptions, retry = true): Promise<Response> {
   const { body, skipAuth, headers, ...rest } = options;
   const accessToken = authStore.getAccessToken();
 
@@ -115,9 +120,14 @@ async function send<T>(path: string, options: RequestOptions, retry = true): Pro
   // Access token kedaluwarsa: perbarui sekali lalu ulangi request aslinya.
   if (response.status === 401 && !skipAuth && retry) {
     const refreshed = await refreshTokens();
-    if (refreshed) return send<T>(path, options, false);
+    if (refreshed) return sendRaw(path, options, false);
   }
 
+  return response;
+}
+
+async function send<T>(path: string, options: RequestOptions): Promise<T> {
+  const response = await sendRaw(path, options);
   const payload = await parseBody(response);
 
   if (!response.ok) {
@@ -131,8 +141,62 @@ async function send<T>(path: string, options: RequestOptions, retry = true): Pro
   return payload as T;
 }
 
+export interface DownloadResult {
+  blob: Blob;
+  filename: string;
+  /** True kalau server memotong hasil karena melewati batas baris ekspor. */
+  truncated: boolean;
+  rowCount: number;
+}
+
+/**
+ * Mengunduh berkas (ekspor Excel/CSV) sebagai Blob.
+ *
+ * Tidak bisa memakai `<a href>` biasa karena endpointnya menuntut header
+ * Authorization, dan tag anchor tidak bisa membawa header. Jadi berkasnya
+ * diambil lewat fetch lalu disimpan dari sisi browser.
+ */
+async function download(path: string): Promise<DownloadResult> {
+  const response = await sendRaw(path, { method: 'GET' });
+
+  if (!response.ok) {
+    const payload = await parseBody(response);
+
+    throw new ApiError(
+      extractMessage(payload, `Ekspor gagal (HTTP ${response.status})`),
+      response.status,
+      payload,
+    );
+  }
+
+  return {
+    blob: await response.blob(),
+    filename: filenameFrom(response.headers.get('Content-Disposition')),
+    truncated: response.headers.get('X-Export-Truncated') === 'true',
+    rowCount: Number(response.headers.get('X-Export-Rows') ?? 0),
+  };
+}
+
+/** Membaca nama berkas dari Content-Disposition, mendahulukan bentuk RFC 5987. */
+function filenameFrom(header: string | null): string {
+  if (!header) return 'export';
+
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+
+  if (encoded?.[1]) {
+    try {
+      return decodeURIComponent(encoded[1]);
+    } catch {
+      // Header cacat: jatuh ke bentuk polos di bawah.
+    }
+  }
+
+  return /filename="([^"]+)"/i.exec(header)?.[1] ?? 'export';
+}
+
 export const apiClient = {
   get: <T>(path: string) => send<T>(path, { method: 'GET' }),
+  download,
   post: <T>(path: string, body?: unknown) => send<T>(path, { method: 'POST', body }),
   put: <T>(path: string, body?: unknown) => send<T>(path, { method: 'PUT', body }),
   delete: <T>(path: string) => send<T>(path, { method: 'DELETE' }),

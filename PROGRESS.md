@@ -3,7 +3,7 @@
 Catatan progres lintas sesi. Setiap part yang selesai dicentang di sini, lengkap dengan
 tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tanpa menebak-nebak.
 
-**Status saat ini:** Part 5 selesai. Berikutnya: Part 6 (Submission management).
+**Status saat ini:** Part 6 selesai. Berikutnya: Part 7 (Integrasi Google Sheets).
 
 | Part | Judul                                    | Status     |
 | ---- | ---------------------------------------- | ---------- |
@@ -13,7 +13,7 @@ tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tan
 | 3    | Form CRUD & schema engine (API)          | ✅ Selesai |
 | 4    | Form builder UI (dashboard)              | ✅ Selesai |
 | 5    | Form renderer & embed                    | ✅ Selesai |
-| 6    | Submission management                    | ⬜ Belum   |
+| 6    | Submission management                    | ✅ Selesai |
 | 7    | Integrasi Google Sheets (queue + worker) | ⬜ Belum   |
 | 8    | Workflow notifikasi email                | ⬜ Belum   |
 | 9    | Reporting & export                       | ⬜ Belum   |
@@ -579,20 +579,142 @@ yang memasang form.
   ada sama-sama menghasilkan 404 dengan pesan identik (disengaja, supaya formKey
   yang ada tidak bisa dipetakan dari beda pesan error).
 
-## ⬜ Part 6 — Submission management
+## ✅ Part 6 — Submission management
+
+_Selesai: 9 Agustus 2026_
 
 - [x] ~~Endpoint publik `POST /public/forms/:formKey/submit`~~ → selesai di Part 5
 - [x] ~~Validasi ulang jawaban di server, termasuk evaluasi ulang rule show/hide~~ → Part 5
 - [x] ~~CORS whitelist per form + rate limit per `formKey`/IP~~ → selesai di Part 5
 - [x] ~~Simpan snapshot `schema_version_id` di setiap submission~~ → selesai di Part 5
-- [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5), lalu
-      nyalakan validasi `file_upload` di `answer-validation.ts`
-- [ ] List submission dengan pagination/filter/sort server-side (TanStack Table)
-- [ ] Detail submission per field + status integrasi (spreadsheet & email)
-- [ ] Hapus/arsip submission sesuai permission
+- [x] `GET /admin/submissions?form_id=` — pagination + filter rentang tanggal (`submission.view`)
+- [x] `GET /admin/submissions/:id` — jawaban per field dirender dengan schema
+      versi submission itu + status integrasi spreadsheet & email (`submission.view`)
+- [x] `GET /admin/submissions/export?form_id=` — Excel (ExcelJS) & CSV (`submission.export`)
+- [x] `describeAnswers()` / `formatAnswerValue()` di `@formz/shared` — satu definisi
+      untuk halaman detail, ekspor, dan nanti isi email di Part 8
+- [x] Halaman `/forms/:id/submissions` — TanStack Table 9, kolom dinamis mengikuti
+      field form, pengaturan kolom, filter tanggal, pagination server-side
+- [x] Halaman `/forms/:id/submissions/:submissionId` — seluruh jawaban per field + bagian "Status Integrasi"
+- [x] Tombol ekspor Excel & CSV di halaman daftar
+- [x] Navigasi tab Builder / Submission / Embed di ketiga halaman form
+- [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5) → Part 7
+- [ ] Hapus/arsip submission sesuai permission → Part 9
+
+**Terverifikasi (Playwright, 37 pemeriksaan lolos, 0 error konsol):**
+
+- Tabel memuat 5 submission dengan kolom yang digenerate dari field form;
+  kolom jawaban keenam (`Asal instansi`) tersembunyi secara bawaan dan bisa
+  dimunculkan lewat pengaturan kolom
+- Baris versi 1 menampilkan "Kelas Dasar" sementara baris versi 2 menampilkan
+  "Kelas Pemula" — **id opsi yang sama**, label mengikuti versi masing-masing
+- Filter tanggal mempersempit hasil sampai kosong lalu pulih setelah dihapus
+- Unduhan CSV dan Excel benar-benar terjadi lewat tombol di halaman
+- Detail submission versi lama memunculkan peringatan versi, memakai label lama
+  ("Nama lengkap", bukan "Nama peserta"), dan tetap menampilkan field
+  `Tahun pengalaman` yang sudah dihapus dari form
+- Status Integrasi menampilkan kegagalan sheet lengkap dengan pesan Google API,
+  jumlah percobaan ulang, tautan ke spreadsheet, serta status per penerima email
+  termasuk pesan SMTP-nya
+
+**Terverifikasi (curl ke stack yang jalan):**
+
+- `form_id` maupun `formId` sama-sama diterima; rentang tanggal terbalik ditolak
+  400; form yang tidak ada 404
+- Tanpa token ketiga endpoint 401. Viewer (`submission.view`) boleh membaca daftar
+  dan detail tapi **403 saat mengekspor**; Editor tanpa permission submission 403
+- CSV berisi kolom `Tahun pengalaman` yang hanya ada di versi lama — data dari
+  versi yang sudah tidak berlaku tidak hilang dari berkas ekspor
+
+`pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test` (147 test), `format:check`,
+dan `next build` semuanya bersih.
+
+### Keputusan desain
+
+**Jawaban diterjemahkan di server, bukan di dashboard.** Baris tabel dan entri
+detail dikirim sebagai teks yang sudah jadi ("Kelas Dasar", "Ya"), bukan nilai
+mentah plus schema untuk diolah klien. Alasannya: menerjemahkan di klien menuntut
+dashboard memuat schema **setiap versi** yang muncul di halaman itu — untuk 25
+baris lintas beberapa versi, payload-nya jauh lebih besar daripada teks hasilnya,
+dan logika penerjemahan jadi berjalan di dua tempat. Ekspor Excel/CSV memanggil
+fungsi yang sama, jadi isi berkas dan isi layar tidak mungkin berbeda.
+
+**`describeAnswers()` ditaruh di `@formz/shared`, bukan di apps/api.** Fungsi ini
+akan dipakai lagi untuk isi email notifikasi di Part 8. Menaruhnya di shared sejak
+sekarang mencegah lahirnya salinan kedua yang perlahan menyimpang — masalah yang
+sama persis dengan alasan `evaluateConditions` ada di sana sejak Part 3.
+
+**Kolom daftar diambil dari versi terpublish, isi sel dari versi masing-masing
+submission.** Dua sumber berbeda ini disengaja: judul kolom harus stabil saat
+berpindah halaman, sementara isi sel harus jujur pada versi yang diisi orangnya.
+Konsekuensinya field yang sudah dihapus dari form tidak punya kolom di daftar —
+tapi tetap muncul utuh di halaman detail, dan tetap ikut di berkas ekspor.
+
+**Ekspor menggabungkan kolom lintas versi, daftar tidak.** Berkas ekspor dipakai
+sebagai arsip, jadi membuang kolom yang hanya ada di versi lama berarti kehilangan
+data yang sebenarnya ada di database. Di layar, menambahkan kolom untuk setiap
+field yang pernah ada akan membuat tabel form yang sudah lama direvisi jadi tidak
+terbaca. Prioritas keduanya memang berbeda.
+
+**`submission.export` dipisah dari `submission.view`.** Melihat jawaban satu per
+satu di layar dan mengunduh seluruhnya jadi satu berkas yang bisa dikirim ke mana
+saja adalah dua kemampuan yang berbeda bobotnya. Keduanya sudah ada di katalog
+permission sejak Part 3, dan di sinilah bedanya benar-benar terpakai.
+
+**`ip_address` tidak diikutkan di berkas ekspor.** Berkas ekspor gampang berpindah
+tangan lewat email dan chat. Alamat IP pengisi form tidak dibutuhkan untuk
+pekerjaan yang biasa dilakukan dengan berkas itu, dan tetap bisa dilihat di halaman
+detail oleh yang memang berhak.
+
+**Sel CSV yang diawali `=`, `+`, `-`, atau `@` diberi kutip di depan.** Tanpa itu,
+Excel mengeksekusinya sebagai rumus — dan isi sel di sini datang dari orang luar
+yang mengisi form. Ditambah BOM UTF-8 supaya Excel di Windows tidak salah membaca
+karakter beraksen.
+
+**Status integrasi menggabungkan konfigurasi dan log.** Log adalah kebenaran
+tentang apa yang **sudah terjadi**, konfigurasi menjelaskan apa yang
+**seharusnya terjadi**. Sebelum worker Part 7/8 jalan belum ada satu baris log pun;
+tanpa membaca konfigurasi, halaman detail akan terlihat seolah form ini tidak punya
+integrasi sama sekali — padahal jobnya cuma belum jalan. Karena itu penerima email
+yang dikonfigurasi tapi belum punya log ditampilkan sebagai "Menunggu", dan
+keadaan "belum ada catatan" dibedakan dari "pending".
+
+**Belum ada pencarian teks bebas.** Sempat dicoba lewat filter `string_contains`
+milik Prisma pada kolom JSONB, tapi tanpa `path` filter itu tidak mencocokkan
+apa pun — dan ketahuan justru karena hasilnya selalu nol. Melakukannya dengan benar
+butuh `answers::text ILIKE` lewat SQL mentah plus index trigram supaya tidak
+memindai seluruh tabel; itu pekerjaan yang lebih pas digabung dengan agregasi di
+Part 9. Yang tersedia sekarang filter form dan rentang tanggal, keduanya memakai
+index yang sudah ada.
+
+**TanStack Table 9, bukan 8.** Versi 9 memakai `useTable` + `tableFeatures()`
+alih-alih `useReactTable` + `getCoreRowModel()`; fitur harus didaftarkan eksplisit,
+jadi hanya `columnVisibilityFeature` yang ikut terbawa. Pagination sengaja tidak
+memakai fitur bawaannya karena datanya sudah dipotong server.
+
+**Catatan untuk part berikutnya:**
+
+- **Ekspor dibatasi 20.000 baris** dan disusun di memori. Kalau nanti perlu lebih,
+  ekspornya harus jadi job antrean yang mengirim tautan unduhan — bukan sekadar
+  menaikkan angkanya. Header `X-Export-Truncated` sudah dikirim dan dashboard
+  sudah menampilkan peringatannya.
+- Rentang tanggal diperlakukan dalam **waktu server** (UTC di compose). Untuk
+  pemakaian lintas zona waktu, filter perlu menerima offset dari klien.
+- Log integrasi spreadsheet dicocokkan lewat `target = spreadsheetId`. Worker
+  Part 7 harus menulis kolom `target` dengan nilai itu, kalau tidak status di
+  halaman detail tidak akan menempel ke integrasi yang benar saat satu form punya
+  lebih dari satu tujuan.
+- Penerima dinamis (`notification_rules.recipient_rules`) belum ikut dihitung di
+  `expectedRecipients` — baru `recipients` yang statis. Menunggu Part 8 yang
+  menentukan cara evaluasinya.
+- Belum ada aksi retry manual dari dashboard (Part 7) dan belum ada hapus/arsip
+  submission (dipindah ke Part 9).
+- Belum ada sort per kolom; urutan tetap terbaru dulu.
 
 ## ⬜ Part 7 — Integrasi Google Sheets (queue + worker)
 
+- [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5 & 6), lalu
+      nyalakan validasi `file_upload` di `answer-validation.ts`
 - [ ] Producer BullMQ di API saat submission masuk
 - [ ] Job `sync-to-sheet` idempotent (key = `submission_id`)
 - [ ] Autentikasi service account + Google Sheets API v4 (append row)
@@ -613,6 +735,8 @@ yang memasang form.
 ## ⬜ Part 9 — Reporting & export
 
 - [ ] Manajemen user & role di dashboard (dipindah dari Part 4)
+- [ ] Hapus/arsip submission sesuai permission (dipindah dari Part 6)
+- [ ] Pencarian teks bebas pada jawaban (butuh index trigram, lihat catatan Part 6)
 - [ ] Query agregasi + materialized view untuk report berat
 - [ ] Jadwal refresh materialized view
 - [ ] Chart ringkasan submission (Recharts)
