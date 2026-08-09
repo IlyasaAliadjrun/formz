@@ -22,6 +22,23 @@ function notify(): void {
   for (const listener of listeners) listener();
 }
 
+/**
+ * localStorage dipakai bersama oleh seluruh tab di origin yang sama, jadi logout
+ * di satu tab ikut mencabut sesi di tab lain — tapi tab lain tidak akan tahu
+ * tanpa mendengarkan event ini. Tanpa penanganan ini, tab yang tertinggal masih
+ * terlihat seperti punya sesi sampai request berikutnya gagal 401.
+ *
+ * Event `storage` hanya menyala di tab **lain**, bukan tab yang mengubahnya —
+ * itu sebabnya `notify()` tetap dipanggil manual di setter di bawah.
+ */
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key === null || event.key === ACCESS_TOKEN_KEY || event.key === REFRESH_TOKEN_KEY) {
+      notify();
+    }
+  });
+}
+
 export const authStore = {
   getAccessToken(): string | null {
     if (typeof window === 'undefined') return null;

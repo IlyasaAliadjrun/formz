@@ -3,7 +3,9 @@
 Catatan progres lintas sesi. Setiap part yang selesai dicentang di sini, lengkap dengan
 tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tanpa menebak-nebak.
 
-**Status saat ini:** Part 7 selesai. Berikutnya: Part 8 (sisa workflow notifikasi email).
+**Status saat ini:** Part 7 selesai, plus UI RBAC (manajemen user, role & permission) yang
+di daftar ini tercatat sebagai bagian Part 9. Yang tersisa di Part 8: status delivered/bounced,
+template email kustom, dan batas laju pengiriman.
 
 | Part | Judul                                    | Status      |
 | ---- | ---------------------------------------- | ----------- |
@@ -16,7 +18,7 @@ tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tan
 | 6    | Submission management                    | ✅ Selesai  |
 | 7    | Integrasi Google Sheets (queue + worker) | ✅ Selesai  |
 | 8    | Workflow notifikasi email                | 🟡 Sebagian |
-| 9    | Reporting & export                       | ⬜ Belum    |
+| 9    | Reporting & export                       | 🟡 Sebagian |
 | 10   | Deployment self-hosted & operasional     | ⬜ Belum    |
 
 ---
@@ -228,7 +230,8 @@ plus satu guard sudah mencukupi dan menghemat tiga dependency; logika yang dibut
   seketika, tambahkan denylist jti di Redis.
 - Belum ada rate limit di endpoint login (brute-force). Masuk akal digabung dengan rate limit
   endpoint publik di Part 6.
-- Belum ada CRUD role/permission — baru user. Role masih dikelola lewat seed.
+- ~~Belum ada CRUD role/permission — baru user. Role masih dikelola lewat seed.~~ →
+  selesai bersama UI RBAC: `/admin/roles` lengkap dengan katalog permission-nya.
 - `GET /admin/users` sudah paginated, tapi belum ada endpoint untuk mengganti password sendiri
   (self-service), baru admin yang bisa mengganti password user lain.
 
@@ -347,7 +350,7 @@ _Selesai: 7 Agustus 2026_
 - [x] Save Draft + Publish dengan dialog konfirmasi
 - [x] Halaman `/forms/:id/embed` — formKey, snippet iframe & script, whitelist domain
 - [x] React Query di semua halaman dengan loading & error state eksplisit
-- [ ] Manajemen user & role di dashboard → dipindah ke Part 9
+- [x] ~~Manajemen user & role di dashboard~~ → selesai, lihat bagian "UI RBAC"
 
 **Terverifikasi (Playwright, 22 pemeriksaan lolos, 0 error konsol):**
 
@@ -943,9 +946,123 @@ penerima, kondisi, log status). Sisanya:
 - [ ] Batas laju pengiriman per form, supaya lonjakan submission tidak menghabiskan
       kuota provider dalam sekali jalan
 
-## ⬜ Part 9 — Reporting & export
+## ✅ UI RBAC — manajemen user, role & permission
 
-- [ ] Manajemen user & role di dashboard (dipindah dari Part 4)
+_Selesai: 9 Agustus 2026. Di daftar ini item-nya tercatat sebagai bagian Part 9
+("Manajemen user & role di dashboard", dipindah dari Part 4)._
+
+- [x] **CRUD role di API** — `/admin/roles` (list, detail, buat, ubah, hapus) plus
+      `/admin/roles/permissions` untuk katalognya. Belum ada sebelumnya: Part 2
+      hanya membuat CRUD user, dan role masih dikelola lewat seed
+- [x] Halaman `/settings/users` — daftar, pencarian, pagination, tambah/ubah/hapus,
+      penetapan role lewat centang
+- [x] Halaman `/settings/roles` — daftar role beserta permission-nya, buat role baru,
+      checklist permission dikelompokkan per subject
+- [x] Gating permission di seluruh UI: menu utama, tab halaman form, tombol aksi
+- [x] `useHasPermission()` bertipe `PermissionKey`, bukan `string`
+- [x] Halaman login: penjelasan saat sesi berakhir, kembali ke halaman semula,
+      penolakan redirect ke domain luar
+- [x] Sinkronisasi sesi antar tab lewat event `storage`
+- [x] 13 test akses `/admin/roles` di `apps/api/test/roles-access.spec.ts`
+
+**Terverifikasi (Playwright, 40 pemeriksaan lolos, 0 error konsol di luar 401
+yang memang sengaja dipicu):**
+
+- Super Admin melihat menu Pengaturan; operator berhak terbatas tidak
+- `/settings` dialihkan ke `/settings/users`
+- Role bawaan tampil bertanda "Bawaan sistem" dengan tombol ubah & hapus mati;
+  role yang masih dipakai user juga tidak bisa dihapus
+- Membuat role baru lewat UI, muncul di daftar, lalu dihapus lagi
+- Operator dengan `form.view` + `submission.view`: tombol "Buat Form" hilang,
+  tab Integrasi hilang, Save Draft & Publish mati dengan keterangan permission-nya
+- Operator yang memaksa membuka `/settings/users` lewat URL melihat penolakan
+  yang menyebut `user.manage`
+- Token tidak berlaku → dialihkan ke `/login?next=%2Fforms&reason=expired`
+  dengan keterangan "Sesi kamu sudah berakhir", lalu kembali ke `/forms` setelah login
+- `?next=https://contoh-jahat.test/x` diabaikan, redirect tetap di dalam aplikasi
+- Logout di satu tab membuat tab kedua ikut keluar tanpa perlu di-reload
+
+**Terverifikasi (curl):**
+
+- Role kustom dibuat dengan `form.view` + `submission.view`; user yang memegangnya
+  mendapat persis dua permission itu, dan ditolak 403 di `/admin/users` maupun
+  `/admin/roles` sementara `/admin/forms` tetap 200
+- Menambah `submission.export` ke role tersebut **mencabut sesi** pemegangnya
+  (refresh token jadi 401), dan permission baru terbawa setelah login ulang
+- Mengubah role bawaan ditolak dengan penjelasan soal seed
+- Nama role duplikat → 409; menghapus role yang masih dipakai → ditolak
+
+### Keputusan desain
+
+**Role bawaan dikunci, bukan sekadar diberi peringatan.** `prisma/seed.ts`
+menyalin daftar permission tiap role bawaan dari `SYSTEM_ROLES` — termasuk
+**membuang** yang tidak ada di daftar itu — dan seed jalan otomatis setiap
+`docker compose up`. Membiarkan role bawaan diedit berarti perubahannya hilang
+diam-diam pada restart berikutnya, dan orang baru menyadarinya saat hak akses
+seseorang tiba-tiba berbeda dari yang mereka setel. Perubahan yang tidak bertahan
+lebih buruk daripada perubahan yang ditolak, jadi API menolaknya dengan menyebut
+alasannya, dan tombolnya di UI mati dengan keterangan yang sama.
+
+**Katalog permission diambil dari server, bukan diimpor dari `@formz/shared`.**
+Dashboard sebenarnya bisa mengimpornya langsung — bundle-nya bahkan lebih kecil.
+Tapi yang menentukan permission mana yang benar-benar bisa diberikan adalah isi
+tabel `permissions`, dan keduanya bisa berbeda kalau seed belum dijalankan setelah
+katalog bertambah. Mengambilnya lewat `GET /admin/roles/permissions` membuat
+perbedaan itu terlihat sebagai centang yang memang tidak ada, bukan sebagai
+centang yang gagal saat disimpan.
+
+**`/admin/roles` memakai `user.manage`, bukan permission sendiri.** Sempat
+dipertimbangkan `role.manage` terpisah, tapi siapa pun yang bisa mengubah daftar
+permission sebuah role bisa memberi dirinya sendiri hak apa pun lewat role yang ia
+buat lalu tetapkan. Permission terpisah di situ hanya menciptakan kesan pembatasan
+yang tidak benar-benar membatasi.
+
+**Mengubah permission role mencabut sesi seluruh pemegangnya.** Secara teknis
+tidak perlu: permission dibaca dari database setiap request (keputusan Part 2),
+jadi hak akses yang baru sudah berlaku seketika. Yang tidak ikut berubah adalah
+`GET /admin/auth/me` yang di-cache klien — tanpa login ulang, orangnya melihat
+menu lama yang tombolnya menghasilkan 403. Mencabut sesi membuat menunya ikut
+tersusun ulang.
+
+**Tab disembunyikan, tombol dimatikan.** Dua perlakuan berbeda untuk dua keadaan
+berbeda. Tab menuju halaman yang memang bukan untuk orang itu tidak dirender sama
+sekali — tab mati mengundang dugaan ada yang rusak. Sebaliknya tombol aksi di
+dalam halaman yang sedang dibuka tetap dirender tapi `disabled` dengan `title`
+berisi nama permission-nya, karena tombol yang hilang dari tempat yang biasanya
+ada justru lebih membingungkan daripada tombol yang jelas-jelas terkunci.
+
+**Parameter `useHasPermission()` bertipe `PermissionKey`.** Sebelumnya `string`.
+Permission yang salah ketik selalu mengembalikan false — artinya tombolnya hilang
+diam-diam dan tidak ada yang tahu sampai ada yang melapor. Sekarang salah ketik
+ketahuan saat compile, sama seperti `@RequirePermission()` di API.
+
+**Parameter `next` di halaman login dibatasi ke path internal.** Tanpa
+pemeriksaan `/^\/(?!\/)/`, `?next=https://situs-lain.com` membuat halaman login
+kita jadi batu loncatan untuk mengarahkan orang ke mana pun setelah mereka login —
+lengkap dengan kredibilitas domain sendiri di address bar sesaat sebelumnya.
+
+**Redirect hanya untuk 401/403, bukan semua error.** Versi sebelumnya melempar
+orang ke halaman login begitu `GET /admin/auth/me` gagal apa pun sebabnya. API
+yang sedang mati atau jaringan yang putus jadi tampak seperti sesi berakhir, dan
+penyebab sebenarnya tersembunyi. Sekarang hanya kegagalan yang benar-benar soal
+sesi yang memicu redirect.
+
+**Catatan untuk part berikutnya:**
+
+- Belum ada halaman ganti password sendiri (self-service). Password hanya bisa
+  diganti admin lewat `/settings/users`, dan itu mencabut sesi orangnya.
+- Daftar user belum punya filter status aktif/nonaktif di UI, walau API-nya sudah
+  menerima parameter `isActive`.
+- Role belum bisa dibatasi per-resource (misal "Editor form A saja"). CASL
+  mendukungnya lewat `conditions`, dan `CaslAbilityFactory` tinggal diperluas —
+  tapi itu menuntut penyimpanan cakupan per role yang belum ada di schema.
+- Halaman `/settings` masih memuat dua tab. Kalau nanti bertambah (misal
+  pengaturan SMTP lewat UI), sub-navigasinya sudah siap di `settings/layout.tsx`.
+
+## 🟡 Part 9 — Reporting & export
+
+- [x] ~~Manajemen user & role di dashboard (dipindah dari Part 4)~~ → selesai,
+      lihat bagian "UI RBAC" di atas
 - [ ] Hapus/arsip submission sesuai permission (dipindah dari Part 6)
 - [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5, 6, & 7),
       lalu nyalakan validasi `file_upload` di `answer-validation.ts`

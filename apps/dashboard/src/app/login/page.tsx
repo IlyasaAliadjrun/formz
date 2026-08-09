@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Clock, Loader2 } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -19,7 +19,12 @@ function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
-  const redirectTo = searchParams.get('next') ?? '/forms';
+  // `next` hanya boleh berupa path di aplikasi ini. Tanpa pemeriksaan ini,
+  // `?next=https://situs-lain.com` akan membuat halaman login kita jadi batu
+  // loncatan untuk mengarahkan orang ke mana pun setelah mereka login.
+  const nextParam = searchParams.get('next');
+  const redirectTo = nextParam && /^\/(?!\/)/.test(nextParam) ? nextParam : '/forms';
+  const sessionExpired = searchParams.get('reason') === 'expired';
 
   // Kalau sudah punya sesi, tidak perlu login lagi.
   useEffect(() => {
@@ -39,6 +44,17 @@ function LoginForm() {
       </CardHeader>
 
       <CardContent>
+        {/* Tanpa keterangan ini, orang yang tiba-tiba terlempar ke sini di
+            tengah pekerjaan akan mengira dashboard-nya rusak. */}
+        {sessionExpired && !login.isError && (
+          <Alert className="mb-4">
+            <Clock />
+            <AlertDescription>
+              <p>Sesi kamu sudah berakhir. Masuk lagi untuk melanjutkan.</p>
+            </AlertDescription>
+          </Alert>
+        )}
+
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div className="flex flex-col gap-2">
             <Label htmlFor="email">Email</Label>

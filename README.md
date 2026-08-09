@@ -176,6 +176,38 @@ Buka http://localhost:3000 lalu login dengan `ADMIN_EMAIL` + `ADMIN_PASSWORD` da
 | `/forms/:id/submissions/:submission` | Detail jawaban per field + status integrasi per submission |
 | `/forms/:id/integrations`            | Target Google Sheets, aturan notifikasi email, uji coba    |
 | `/forms/:id/embed`                   | formKey, snippet iframe & script tag, whitelist domain     |
+| `/settings/users`                    | Daftar user, tambah/ubah/hapus, penetapan role             |
+| `/settings/roles`                    | Role & permission yang dimilikinya                         |
+
+### User, role, dan permission
+
+Halaman `/settings` hanya terlihat oleh pemegang permission `user.manage`.
+
+**Role bawaan** (`Super Admin`, `Form Manager`, `Viewer`) dikunci dari dashboard:
+daftar permission-nya disalin ulang dari `SYSTEM_ROLES` di `@formz/shared` setiap
+seed dijalankan — dan seed jalan otomatis pada setiap `docker compose up`. Kalau
+diubah lewat UI, perubahannya akan hilang diam-diam saat stack berikutnya naik,
+jadi lebih baik ditolak sejak awal. Untuk kombinasi permission yang lain, buat
+role baru; role buatan sendiri tidak pernah disentuh seed.
+
+Katalog permission-nya sendiri hidup di
+[packages/shared/src/rbac.ts](./packages/shared/src/rbac.ts) — satu sumber yang
+dipakai seed, guard di API, dan tampilan menu di dashboard sekaligus. Menambah
+permission berarti menambah entri di sana lalu menjalankan
+`docker compose run --rm db-setup`.
+
+Beberapa pengaman yang berlaku di API dan ikut tercermin di UI:
+
+- Super Admin aktif terakhir tidak bisa dihapus, dinonaktifkan, atau dicabut rolenya
+- Akun sendiri tidak bisa dihapus, dan status aktifnya dikunci di dialog
+- Role yang masih dipakai user tidak bisa dihapus
+- Mengubah role, password, atau status aktif seseorang **mencabut seluruh sesinya**;
+  begitu pula mengubah daftar permission sebuah role, untuk semua pemegangnya
+
+**Pengecekan permission di dashboard menentukan tampilan, bukan akses.** Menu dan
+tombol yang tidak relevan disembunyikan atau dimatikan supaya tidak ada klik yang
+berujung 403, tapi yang benar-benar menahan tetap guard di API — apa pun yang
+diputuskan di browser bisa dilewati.
 
 ### Memasang form di website lain
 

@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { RbacModule } from '../rbac/rbac.module';
 import { AuthController } from './auth.controller';
@@ -14,7 +14,9 @@ import { TokenService } from './token.service';
  * refresh token memakai secret berbeda — keduanya diberikan per operasi di TokenService.
  */
 @Module({
-  imports: [JwtModule.register({}), RbacModule],
+  // forwardRef karena RbacModule juga mengimpor modul ini (RolesService memakai
+  // TokenService untuk mencabut sesi saat permission sebuah role berubah).
+  imports: [JwtModule.register({}), forwardRef(() => RbacModule)],
   controllers: [AuthController],
   providers: [AuthService, TokenService, JwtAuthGuard],
   exports: [AuthService, TokenService, JwtAuthGuard],

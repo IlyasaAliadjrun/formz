@@ -194,3 +194,30 @@ export interface DispatchSummary {
   emailJobs: number;
   skipped: string[];
 }
+
+// ---------------------------------------------------------------------------
+// User & role (RBAC)
+// ---------------------------------------------------------------------------
+
+export interface UserSummary {
+  id: string;
+  email: string;
+  name: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+  roles: Array<{ id: string; name: string }>;
+}
+
+export interface RoleSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  /** Role bawaan sistem: tidak bisa diubah maupun dihapus dari dashboard. */
+  isSystem: boolean;
+  permissionKeys: string[];
+  /** Jumlah user yang memegang role ini. */
+  userCount: number;
+  createdAt: string;
+  updatedAt: string;
+}

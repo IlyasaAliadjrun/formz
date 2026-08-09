@@ -205,13 +205,18 @@ export default function FormListPage() {
                     </TableCell>
 
                     <TableCell onClick={(event) => event.stopPropagation()}>
+                      {/* Pintasan ke halaman yang memang tidak boleh dibuka
+                          tidak ditampilkan — halamannya sendiri juga akan
+                          menolak, dan tautan buntu hanya membuang klik. */}
                       <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/forms/${form.id}/submissions`}>
-                            <Inbox />
-                            Submission
-                          </Link>
-                        </Button>
+                        {hasPermission('submission.view') && (
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link href={`/forms/${form.id}/submissions`}>
+                              <Inbox />
+                              Submission
+                            </Link>
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" asChild>
                           <Link href={`/forms/${form.id}/embed`}>
                             <Code2 />

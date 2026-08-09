@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useSyncExternalStore } from 'react';
-import type { AuthenticatedUser } from '@formz/shared';
+import type { AuthenticatedUser, PermissionKey } from '@formz/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient, type ApiError } from '../api-client';
 import { authStore } from '../auth-store';
@@ -55,9 +55,19 @@ export function useLogout() {
   });
 }
 
-/** Cek permission dari daftar yang dibawa GET /admin/auth/me. */
-export function useHasPermission(): (permission: string) => boolean {
+/**
+ * Cek permission dari daftar yang dibawa `GET /admin/auth/me`.
+ *
+ * Parameternya bertipe `PermissionKey`, bukan `string`, supaya salah ketik nama
+ * permission ketahuan saat compile — sama seperti `@RequirePermission()` di API.
+ * Permission yang salah ketik akan selalu mengembalikan false, artinya tombolnya
+ * hilang diam-diam dan tidak ada yang menyadarinya sampai ada yang melapor.
+ *
+ * Ini hanya menentukan **tampilan**. Penegakan sesungguhnya ada di guard API,
+ * karena apa pun yang diputuskan di browser bisa dilewati.
+ */
+export function useHasPermission(): (permission: PermissionKey) => boolean {
   const { data: user } = useCurrentUser();
 
-  return (permission: string) => user?.permissions.includes(permission) ?? false;
+  return (permission: PermissionKey) => user?.permissions.includes(permission) ?? false;
 }
