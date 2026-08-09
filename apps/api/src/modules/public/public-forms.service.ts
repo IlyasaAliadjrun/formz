@@ -24,6 +24,7 @@ import {
   PublishedFormCacheService,
   type CachedPublishedForm,
 } from '../forms/published-form-cache.service';
+import { SubmissionDispatcherService } from '../queue/submission-dispatcher.service';
 import type { OriginPolicy } from './origin-policy';
 
 /**
@@ -52,6 +53,7 @@ export class PublicFormsService {
     private readonly cache: PublishedFormCacheService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @Inject(APP_ENV) private readonly env: Env,
+    private readonly dispatcher: SubmissionDispatcherService,
   ) {}
 
   /**
@@ -176,7 +178,16 @@ export class PublicFormsService {
       `Submission ${submission.id} masuk untuk form ${formKey} (versi ${form.versionNumber})`,
     );
 
-    // Job sync spreadsheet & notifikasi email di-enqueue di Part 7 dan Part 8.
+    // Sync spreadsheet dan kirim email dikerjakan di antrean, bukan di sini.
+    // Kalau dikerjakan sinkron, orang yang mengisi form di website lain ikut
+    // menunggu Google API dan SMTP relay (ARCHITECTURE.md bagian 2).
+    await this.dispatcher.dispatchQuietly({
+      formId: form.formId,
+      submissionId: submission.id,
+      schema,
+      answers: result.answers,
+    });
+
     return this.successResult(submission.id, schema);
   }
 

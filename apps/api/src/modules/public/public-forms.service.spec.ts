@@ -7,6 +7,7 @@ import type {
   CachedPublishedForm,
   PublishedFormCacheService,
 } from '../forms/published-form-cache.service';
+import type { SubmissionDispatcherService } from '../queue/submission-dispatcher.service';
 import { PublicFormsService } from './public-forms.service';
 
 /**
@@ -65,6 +66,7 @@ describe('PublicFormsService', () => {
   let prisma: { form: { findUnique: jest.Mock }; submission: { create: jest.Mock } };
   let cache: { get: jest.Mock; set: jest.Mock };
   let redis: { get: jest.Mock; set: jest.Mock };
+  let dispatcher: { dispatchQuietly: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -73,12 +75,14 @@ describe('PublicFormsService', () => {
     };
     cache = { get: jest.fn().mockResolvedValue(PUBLISHED), set: jest.fn() };
     redis = { get: jest.fn().mockResolvedValue(null), set: jest.fn() };
+    dispatcher = { dispatchQuietly: jest.fn().mockResolvedValue(undefined) };
 
     service = new PublicFormsService(
       prisma as unknown as PrismaService,
       cache as unknown as PublishedFormCacheService,
       redis as unknown as Redis,
       { EMBED_URL: 'http://localhost:5173' } as Env,
+      dispatcher as unknown as SubmissionDispatcherService,
     );
   });
 

@@ -118,6 +118,26 @@ export function isOptionVisible(
 }
 
 /**
+ * Mengevaluasi satu grup kondisi lepas terhadap sekumpulan jawaban.
+ *
+ * Dipakai untuk kondisi yang tidak menempel pada field mana pun — kapan sebuah
+ * notifikasi dikirim, siapa penerima tambahannya. Visibilitas field tetap
+ * dihitung lebih dulu supaya aturannya persis sama dengan kondisi show/hide:
+ * jawaban milik field yang tersembunyi dianggap tidak ada.
+ */
+export function matchesConditionGroup(
+  group: ConditionGroup | undefined | null,
+  schema: FormSchema,
+  answers: AnswerMap,
+): boolean {
+  if (!group) return true;
+
+  const evaluation = evaluateConditions(schema, answers);
+
+  return isVisible(group, answers, new Set(evaluation.visibleFieldIds));
+}
+
+/**
  * Membuang jawaban yang seharusnya tidak ada: field yang tersembunyi, dan opsi
  * tersembunyi pada field multiselect.
  *

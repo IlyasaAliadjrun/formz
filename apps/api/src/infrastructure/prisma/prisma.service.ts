@@ -29,6 +29,17 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
         max: env.POSTGRES_POOL_MAX,
         connectionTimeoutMillis: 5_000,
         idleTimeoutMillis: 30_000,
+        // Zona waktu sesi dipaksa UTC, tidak mengikuti TZ container.
+        //
+        // Nilai `@default(now())` dan `@updatedAt` dihasilkan Prisma di sisi
+        // aplikasi lalu dikirim tanpa keterangan zona waktu, sehingga PostgreSQL
+        // menafsirkannya memakai timezone sesi. Dengan TZ=Asia/Jakarta, waktu
+        // UTC yang dikirim Prisma tercatat seolah waktu Jakarta — setiap
+        // timestamp meleset tujuh jam ke belakang. Menyamakan zona sesi dengan
+        // zona yang dipakai Prisma menghilangkan selisih itu, dan tidak
+        // mengubah cara nilainya ditampilkan (kolomnya timestamptz, jadi
+        // konversi ke zona pembaca tetap terjadi di sisi pembaca).
+        options: '-c timezone=UTC',
       }),
     });
   }

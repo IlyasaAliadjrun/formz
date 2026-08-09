@@ -2,11 +2,14 @@ import 'reflect-metadata';
 import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { Queue } from 'bullmq';
 import { AppModule } from './app.module';
 import { APP_ENV } from './config/config.module';
 import type { Env } from './config/env.schema';
 import { createCorsDelegate } from './modules/public/public-cors';
 import { PublicFormsService } from './modules/public/public-forms.service';
+import { mountBullBoard } from './modules/queue/bull-board';
+import { EMAIL_NOTIFICATION_QUEUE, SHEET_SYNC_QUEUE } from './modules/queue/queue.constants';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
@@ -28,12 +31,25 @@ async function bootstrap(): Promise<void> {
 
   app.enableCors(createCorsDelegate(env, (formKey) => publicForms.originPolicy(formKey)));
 
+  // Halaman pemantauan antrean. Punya autentikasi sendiri (HTTP Basic) dan tidak
+  // dipasang sama sekali kalau kredensialnya belum diatur — lihat bull-board.ts.
+  const boardMounted = mountBullBoard(app, env, [
+    app.get<Queue>(SHEET_SYNC_QUEUE),
+    app.get<Queue>(EMAIL_NOTIFICATION_QUEUE),
+  ]);
+
   app.enableShutdownHooks();
 
   await app.listen(env.API_PORT, env.API_HOST);
 
   logger.log(`API berjalan di http://${env.API_HOST}:${env.API_PORT}`);
   logger.log(`Health check: http://${env.API_HOST}:${env.API_PORT}/health`);
+
+  if (boardMounted) {
+    logger.log(
+      `Pemantauan antrean: http://${env.API_HOST}:${env.API_PORT}${env.QUEUE_DASHBOARD_PATH}`,
+    );
+  }
 }
 
 void bootstrap();

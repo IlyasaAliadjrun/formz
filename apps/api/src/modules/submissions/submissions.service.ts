@@ -1,8 +1,12 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
+  conditionGroupSchema,
   createEmptyFormSchema,
   describeAnswers,
   formSchemaSchema,
+  recipientRulesSchema,
+  resolveRecipients,
+  shouldNotify,
   type AnswerEntry,
   type AnswerMap,
   type FormSchema,
@@ -159,7 +163,12 @@ export class SubmissionsService {
             },
             notificationRules: {
               where: { isActive: true },
-              select: { recipients: true },
+              select: {
+                recipients: true,
+                recipientFieldIds: true,
+                recipientRules: true,
+                condition: true,
+              },
             },
             versions: {
               orderBy: { versionNumber: 'desc' },
@@ -213,6 +222,8 @@ export class SubmissionsService {
         submission.form.integrations,
         submission.form.notificationRules,
         submission.integrationLogs,
+        schema,
+        answers,
       ),
     };
   }
@@ -493,6 +504,30 @@ interface LogRow {
   syncedAt: Date | null;
 }
 
+interface NotificationRuleRow {
+  recipients: string[];
+  recipientFieldIds: string[];
+  recipientRules: Prisma.JsonValue;
+  condition: Prisma.JsonValue;
+}
+
+/** JSONB tidak dijamin bentuknya, jadi yang tidak lolos parse dianggap tidak ada. */
+function parseCondition(value: Prisma.JsonValue) {
+  if (value === null) return null;
+
+  const parsed = conditionGroupSchema.safeParse(value);
+
+  return parsed.success ? parsed.data : null;
+}
+
+function parseRecipientRules(value: Prisma.JsonValue) {
+  if (value === null) return null;
+
+  const parsed = recipientRulesSchema.safeParse(value);
+
+  return parsed.success ? parsed.data : null;
+}
+
 /**
  * Menggabungkan **konfigurasi** (apa yang seharusnya terjadi) dengan **log**
  * (apa yang benar-benar terjadi).
@@ -503,8 +538,10 @@ interface LogRow {
  */
 function buildIntegrations(
   integrations: Array<{ id: string; type: string; config: Prisma.JsonValue }>,
-  notificationRules: Array<{ recipients: string[] }>,
+  notificationRules: NotificationRuleRow[],
   logs: LogRow[],
+  schema: FormSchema,
+  answers: AnswerMap,
 ): SubmissionIntegrations {
   const sheetIntegrations = integrations.filter((item) => item.type === 'google_sheet');
   const sheetLogs = logs.filter((log) => log.type === 'sheet');
@@ -512,11 +549,13 @@ function buildIntegrations(
 
   const targets: SheetIntegrationStatus[] = sheetIntegrations.map((integration) => {
     const config = readSheetConfig(integration.config);
-    // Log spreadsheet ditulis dengan target = spreadsheetId, jadi bisa dicocokkan
-    // ke integrasinya kalau sebuah form punya lebih dari satu tujuan.
-    const log =
-      sheetLogs.find((item) => item.target === config.spreadsheetId) ??
-      (sheetIntegrations.length === 1 ? sheetLogs[0] : undefined);
+    // Log spreadsheet ditulis worker dengan `target` = id integrasinya.
+    // Sempat dipertimbangkan memakai spreadsheetId, tapi itu tidak cukup
+    // membedakan dua integrasi yang menulis ke tab berbeda dalam satu
+    // spreadsheet — keduanya akan berebut baris log yang sama. Yang ditampilkan
+    // ke layar (nama sheet, tautan) tetap diambil dari konfigurasi, jadi id di
+    // kolom target tidak perlu terbaca manusia.
+    const log = sheetLogs.find((item) => item.target === integration.id);
 
     return {
       integrationId: integration.id,
@@ -532,8 +571,27 @@ function buildIntegrations(
     };
   });
 
+  // Penerima yang **seharusnya** dikirimi untuk jawaban ini — dihitung dengan
+  // fungsi yang sama persis dengan yang dipakai saat mengantre job, jadi daftar
+  // di layar tidak bisa berbeda dari daftar yang benar-benar dikirimi. Termasuk
+  // penerima dinamis (field email pengisi & aturan bersyarat), yang di Part 6
+  // belum ikut terhitung karena aturannya memang belum ada.
   const expectedRecipients = [
-    ...new Set(notificationRules.flatMap((rule) => rule.recipients)),
+    ...new Set(
+      notificationRules
+        .filter((rule) => shouldNotify(parseCondition(rule.condition), schema, answers))
+        .flatMap((rule) =>
+          resolveRecipients(
+            {
+              recipients: rule.recipients,
+              recipientFieldIds: rule.recipientFieldIds,
+              recipientRules: parseRecipientRules(rule.recipientRules),
+            },
+            schema,
+            answers,
+          ),
+        ),
+    ),
   ].sort();
 
   const recipients: EmailRecipientStatus[] = emailLogs.map((log) => ({

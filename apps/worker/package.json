@@ -10,19 +10,33 @@
     "start": "node dist/main.js",
     "start:prod": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "test": "jest",
+    "test:watch": "jest --watch"
   },
   "dependencies": {
     "@formz/shared": "workspace:*",
+    "@react-email/components": "^1.0.12",
+    "@react-email/render": "^2.1.0",
     "bullmq": "^6.0.9",
     "dotenv": "^17.2.4",
+    "googleapis": "^174.0.1",
     "ioredis": "^5.9.0",
+    "nodemailer": "^9.0.5",
     "pg": "^8.22.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^22.20.1",
+    "@types/nodemailer": "^8.0.1",
     "@types/pg": "^8.20.4",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.12",
     "tsx": "^4.23.10",
     "typescript": "^5.9.3"
   }

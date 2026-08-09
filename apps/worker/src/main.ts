@@ -2,7 +2,9 @@ import { QUEUE_NAMES } from '@formz/shared';
 import { Worker, type Processor } from 'bullmq';
 import { closeConnections, redis, verifyConnections } from './connections';
 import { env } from './env';
+import { hasGoogleCredentials } from './google/sheets';
 import { createLogger } from './logger';
+import { mailProvider } from './mail';
 import { processEmailNotification } from './processors/email-notification.processor';
 import { processSheetSync } from './processors/sheet-sync.processor';
 
@@ -25,6 +27,7 @@ function createWorker(queueName: string, processor: Processor): Worker {
 
 async function bootstrap(): Promise<void> {
   await verifyConnections();
+  await reportIntegrationReadiness();
 
   const workers = [
     createWorker(QUEUE_NAMES.SHEET_SYNC, processSheetSync as Processor),
@@ -45,6 +48,34 @@ async function bootstrap(): Promise<void> {
 
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
   process.on('SIGINT', () => void shutdown('SIGINT'));
+}
+
+/**
+ * Melaporkan keadaan kredensial integrasi saat start.
+ *
+ * Tidak menggagalkan boot: instalasi yang hanya memakai notifikasi email tidak
+ * perlu kredensial Google, dan sebaliknya. Yang perlu dihindari adalah keadaan
+ * "job terus gagal tanpa ada yang tahu kenapa" — jadi kekurangannya disebutkan
+ * satu kali di awal, bukan hanya muncul sebagai error job ke sekian.
+ */
+async function reportIntegrationReadiness(): Promise<void> {
+  if (hasGoogleCredentials()) {
+    logger.info(`Google Sheets siap — service account ${env.GOOGLE_SERVICE_ACCOUNT_EMAIL}`);
+  } else {
+    logger.warn(
+      'Kredensial Google belum diisi — job sync-to-sheet akan gagal ' +
+        '(GOOGLE_SERVICE_ACCOUNT_EMAIL & GOOGLE_PRIVATE_KEY)',
+    );
+  }
+
+  try {
+    const provider = mailProvider();
+    await provider.verify();
+    logger.info(`Pengiriman email siap lewat ${provider.name}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.warn(`Pengiriman email belum siap: ${message}`);
+  }
 }
 
 bootstrap().catch((error: unknown) => {

@@ -23,6 +23,12 @@ export const pool = new Pool({
   max: 5,
   connectionTimeoutMillis: 5_000,
   idleTimeoutMillis: 30_000,
+  // Zona waktu sesi disamakan dengan sisi API (lihat komentar panjang di
+  // apps/api/src/infrastructure/prisma/prisma.service.ts). Worker menulis
+  // `now()` lewat SQL sehingga tidak terkena masalah yang sama, tapi dua service
+  // yang membaca tabel yang sama dengan zona sesi berbeda adalah sumber
+  // kebingungan yang tidak perlu ada.
+  options: '-c timezone=UTC',
 });
 
 pool.on('error', (error) => logger.error(`Postgres idle client error: ${error.message}`));

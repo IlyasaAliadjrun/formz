@@ -87,6 +87,12 @@ export const PERMISSIONS = [
     description: 'Mengekspor submission ke xlsx/csv',
   },
   {
+    key: 'integration.manage',
+    action: 'manage',
+    subject: 'Integration',
+    description: 'Mengatur integrasi spreadsheet dan aturan notifikasi email per form',
+  },
+  {
     key: 'report.view',
     action: 'read',
     subject: 'Report',
@@ -154,6 +160,7 @@ export const SYSTEM_ROLES: readonly RoleDefinition[] = [
       'form.publish',
       'submission.view',
       'submission.export',
+      'integration.manage',
       'report.view',
     ],
   },

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Code2, Inbox, PencilRuler } from 'lucide-react';
+import { Code2, Inbox, PencilRuler, Workflow } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 /**
@@ -13,6 +13,7 @@ import { cn } from '@/lib/utils';
 const TABS = [
   { segment: 'edit', label: 'Builder', Icon: PencilRuler },
   { segment: 'submissions', label: 'Submission', Icon: Inbox },
+  { segment: 'integrations', label: 'Integrasi', Icon: Workflow },
   { segment: 'embed', label: 'Embed', Icon: Code2 },
 ] as const;
 

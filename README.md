@@ -125,12 +125,13 @@ tetap ikut di body supaya kelihatan mana yang bermasalah.
 
 Lalu buka di browser:
 
-| URL                          | Isi                                        |
-| ---------------------------- | ------------------------------------------ |
-| http://localhost:3000        | Admin dashboard (login, form builder)      |
-| http://localhost:5173/f/KEY  | Form renderer untuk satu form              |
-| http://localhost:4000/health | Health check API                           |
-| http://localhost:9001        | MinIO console (login pakai `MINIO_ROOT_*`) |
+| URL                          | Isi                                          |
+| ---------------------------- | -------------------------------------------- |
+| http://localhost:3000        | Admin dashboard (login, form builder)        |
+| http://localhost:5173/f/KEY  | Form renderer untuk satu form                |
+| http://localhost:4000/health | Health check API                             |
+| http://localhost:4000/queues | Bull Board (login pakai `QUEUE_DASHBOARD_*`) |
+| http://localhost:9001        | MinIO console (login pakai `MINIO_ROOT_*`)   |
 
 ### 4. Menghentikan
 
@@ -173,6 +174,7 @@ Buka http://localhost:3000 lalu login dengan `ADMIN_EMAIL` + `ADMIN_PASSWORD` da
 | `/forms/:id/edit`                    | Form builder tiga panel: field, preview, properti          |
 | `/forms/:id/submissions`             | Tabel jawaban, filter tanggal, ekspor Excel/CSV            |
 | `/forms/:id/submissions/:submission` | Detail jawaban per field + status integrasi per submission |
+| `/forms/:id/integrations`            | Target Google Sheets, aturan notifikasi email, uji coba    |
 | `/forms/:id/embed`                   | formKey, snippet iframe & script tag, whitelist domain     |
 
 ### Memasang form di website lain
@@ -220,6 +222,79 @@ Catatan: `next build` di app dashboard menyetel `NODE_ENV=production` sendiri le
 script-nya. Ini disengaja — container dev compose menyetel `NODE_ENV=development`, dan
 membangun Next.js dengan nilai itu membuat React build development ikut termuat lalu
 gagal saat prerender dengan pesan yang menyesatkan.
+
+### Integrasi Google Sheets
+
+Sync ke spreadsheet memakai **service account**, bukan OAuth per pengguna: server
+punya satu identitas sendiri, dan admin membagikan spreadsheet ke identitas itu
+seperti membagikannya ke rekan kerja. Tidak ada layar consent, tidak ada proses
+verifikasi aplikasi ke Google, dan tidak ada refresh token milik orang lain yang
+perlu disimpan aplikasi ini. Alasan lengkapnya ada di header
+[integrations.controller.ts](./apps/api/src/modules/integrations/integrations.controller.ts).
+
+Menyiapkannya:
+
+1. Buat project di [Google Cloud Console](https://console.cloud.google.com), lalu
+   aktifkan **Google Sheets API**.
+2. **IAM & Admin → Service Accounts → Create** — beri nama bebas, tanpa role apa pun
+   (aksesnya diberikan per spreadsheet, bukan lewat IAM).
+3. Di service account itu: **Keys → Add key → Create new key → JSON**.
+4. Dari berkas JSON yang terunduh, salin `client_email` ke
+   `GOOGLE_SERVICE_ACCOUNT_EMAIL` dan `private_key` ke `GOOGLE_PRIVATE_KEY` di
+   `.env` (biarkan `\n`-nya apa adanya, apit dengan tanda kutip ganda).
+5. Jalankan ulang api dan worker: `docker compose up -d api worker`.
+6. Buka spreadsheet tujuan → **Share** → tambahkan alamat service account sebagai
+   **Editor**. Tanpa langkah ini sync akan gagal dengan `PERMISSION_DENIED`.
+   Alamatnya ditampilkan siap salin di `/forms/:id/integrations`.
+
+Lalu tambahkan target di `/forms/:id/integrations` (URL spreadsheet boleh ditempel
+apa adanya), dan tekan **Test Kirim** untuk menulis satu baris contoh — job-nya
+menempuh jalur yang sama persis dengan submission sungguhan, jadi kalau uji cobanya
+lolos, konfigurasinya memang sudah benar.
+
+Tab tujuan **harus sudah ada** di spreadsheet; Formz tidak membuat tab baru.
+
+### Notifikasi email
+
+Pengiriman email memakai adaptor yang bisa ditukar
+([apps/worker/src/mail](./apps/worker/src/mail)):
+
+| `MAIL_PROVIDER` | Perilaku                                                                 |
+| --------------- | ------------------------------------------------------------------------ |
+| `console`       | **Bawaan.** Email hanya dicetak ke log worker, tidak dikirim ke mana pun |
+| `smtp`          | Dikirim lewat SMTP relay (Postmark, Amazon SES, SendGrid, dll)           |
+
+`console` sengaja jadi bawaan supaya server yang belum dikonfigurasi tidak bisa
+mengirim email ke alamat sungguhan hanya karena ada variabel yang lupa diisi.
+Untuk mengirim betulan, isi `MAIL_PROVIDER=smtp` beserta `SMTP_HOST`, `SMTP_PORT`,
+`SMTP_USER`, `SMTP_PASSWORD`, dan `MAIL_FROM`.
+
+Jangan menjalankan mail server sendiri di server ini — reputasi IP baru membuat
+emailnya hampir pasti masuk folder spam. Pakai relay pihak ketiga, cukup satu
+koneksi keluar.
+
+Satu aturan notifikasi menentukan subjek, template, kondisi kapan dikirim, dan
+tiga sumber penerima yang digabung: email tetap, jawaban field email milik pengisi
+form (inilah cara membuat balasan otomatis), dan penerima bersyarat. Satu alamat
+hanya menerima satu email per submission walau cocok dengan beberapa aturan.
+
+### Memantau antrean
+
+Sync spreadsheet dan pengiriman email dikerjakan di antrean, bukan saat request
+submit — supaya orang yang mengisi form tidak ikut menunggu Google API dan SMTP relay.
+
+Ringkasan antreannya terlihat di `/forms/:id/integrations`. Untuk melihat job satu
+per satu beserta pesan errornya, ada **Bull Board** di `http://localhost:4000/queues`.
+
+Halaman itu disajikan Express langsung sehingga tidak melewati JWT seperti endpoint
+`/admin` lainnya; autentikasinya HTTP Basic dengan kredensial terpisah
+(`QUEUE_DASHBOARD_USER` & `QUEUE_DASHBOARD_PASSWORD`). Kalau salah satunya kosong,
+halamannya **tidak dipasang sama sekali** — lupa mengonfigurasi berarti halamannya
+tidak ada, bukan halamannya terbuka.
+
+Job yang gagal bisa dijalankan ulang dari tombol **Jalankan ulang** di halaman detail
+submission. Aman ditekan berapa kali pun: target yang catatannya sudah berhasil
+dilewati, jadi tidak ada baris dobel di spreadsheet atau email terkirim dua kali.
 
 ### Database (Prisma)
 
@@ -322,7 +397,8 @@ docker compose up
 | Form renderer  | Preact 10, Vite 7                                   |
 | API            | NestJS 11, TypeScript 5.9                           |
 | ORM            | Prisma 7 (driver adapter `pg`, tanpa engine Rust)   |
-| Worker         | BullMQ 6, tsx                                       |
+| Worker         | BullMQ 6, tsx, googleapis, Nodemailer, React Email  |
+| Pemantauan     | Bull Board 8 (HTTP Basic auth)                      |
 | Shared         | Zod 4                                               |
 | Database       | PostgreSQL 17 (JSONB)                               |
 | Cache & queue  | Redis 7                                             |

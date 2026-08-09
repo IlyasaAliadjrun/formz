@@ -1,4 +1,13 @@
-import type { FormSchema, FormStatus, SchemaValidationResult } from '@formz/shared';
+import type {
+  ConditionGroup,
+  EmailTemplateId,
+  FormSchema,
+  FormStatus,
+  GoogleSheetConfig,
+  RecipientRules,
+  SchemaValidationResult,
+  SheetMetaColumnKey,
+} from '@formz/shared';
 
 /** Bentuk respons endpoint /admin/forms — cerminan FormsService di apps/api. */
 
@@ -122,4 +131,66 @@ export interface SubmissionDetail {
       recipients: EmailRecipientStatus[];
     };
   };
+}
+
+// ---------------------------------------------------------------------------
+// Integrasi & notifikasi (Part 7)
+// ---------------------------------------------------------------------------
+
+export interface SheetIntegration {
+  id: string;
+  formId: string;
+  type: 'google_sheet';
+  isActive: boolean;
+  config: GoogleSheetConfig;
+  url: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationRule {
+  id: string;
+  formId: string;
+  name: string | null;
+  trigger: string;
+  subject: string;
+  emailTemplateId: EmailTemplateId;
+  condition: ConditionGroup | null;
+  recipients: string[];
+  recipientFieldIds: string[];
+  recipientRules: RecipientRules | null;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Semua yang dibutuhkan halaman pengaturan integrasi, dalam satu request. */
+export interface IntegrationSettings {
+  integrations: SheetIntegration[];
+  notificationRules: NotificationRule[];
+  google: { configured: boolean; serviceAccountEmail: string | null };
+  mail: { configured: boolean; provider: string; from: string | null };
+  emailTemplates: ReadonlyArray<{ id: EmailTemplateId; name: string; description: string }>;
+  sheetMetaColumns: ReadonlyArray<{ key: SheetMetaColumnKey; label: string }>;
+}
+
+export interface QueueCounts {
+  name: string;
+  waiting: number;
+  active: number;
+  completed: number;
+  failed: number;
+  delayed: number;
+}
+
+export interface QueueSummary {
+  queues: QueueCounts[];
+  /** Null kalau kredensial Bull Board belum diatur di server. */
+  boardPath: string | null;
+}
+
+export interface DispatchSummary {
+  sheetJobs: number;
+  emailJobs: number;
+  skipped: string[];
 }

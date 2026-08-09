@@ -6,6 +6,7 @@ export * from './condition-evaluator';
 export * from './answer-validation';
 export * from './answer-display';
 export * from './submission';
+export * from './integrations';
 export * from './queue';
 export * from './health';
 export * from './rbac';

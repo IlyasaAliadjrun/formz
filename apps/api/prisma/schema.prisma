@@ -273,15 +273,30 @@ model NotificationRule {
   formId  String              @map("form_id") @db.Uuid
   trigger NotificationTrigger @default(on_submit)
 
+  /// Label untuk membedakan beberapa aturan pada satu form ("Tim sales", "Auto-reply").
+  name String?
+  /// Subjek email; token `{{form}}`, `{{date}}`, `{{submissionId}}`, dan nama
+  /// field diganti saat dirender (`renderTemplateString` di @formz/shared).
+  subject String?
+  /// Kapan aturan ini dipakai. Bentuknya `ConditionGroup` yang sama dengan
+  /// kondisi show/hide field, jadi condition builder di dashboard bisa dipakai
+  /// ulang apa adanya. NULL = selalu dikirim.
+  condition Json? @db.JsonB
+
   /// Daftar email tujuan yang tetap.
   recipients String[] @default([])
-  /// Tujuan dinamis berdasarkan jawaban, misal:
-  /// { "rules": [{ "fieldId": "field_003", "operator": "equals",
-  ///               "value": "opt_2", "recipients": ["sales@example.com"] }] }
+  /// Field bertipe email yang jawabannya ikut dijadikan tujuan — inilah yang
+  /// membuat auto-reply ke pengisi form mungkin tanpa jenis aturan terpisah.
+  recipientFieldIds String[] @default([]) @map("recipient_field_ids")
+  /// Tujuan dinamis berdasarkan jawaban, divalidasi dengan `recipientRulesSchema`:
+  /// { "rules": [{ "condition": { "action": "show", "logic": "AND",
+  ///               "rules": [{ "fieldId": "f_1", "operator": "equals", "value": "opt_2" }] },
+  ///               "recipients": ["sales@example.com"] }] }
   /// Dipakai berdampingan dengan `recipients` — hasil akhirnya digabung.
   recipientRules Json? @map("recipient_rules") @db.JsonB
 
-  /// Menjadi foreign key ke tabel template email di Part 8.
+  /// Salah satu id dari `EMAIL_TEMPLATES` di @formz/shared. Masih kolom teks
+  /// biasa; baru jadi foreign key kalau template buatan sendiri didukung.
   emailTemplateId String? @map("email_template_id")
   isActive        Boolean @default(true) @map("is_active")
 

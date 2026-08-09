@@ -28,14 +28,29 @@ const envSchema = z.object({
   /** Berapa job yang boleh diproses bersamaan per queue. */
   WORKER_CONCURRENCY: z.coerce.number().int().positive().default(5),
 
-  // Integrasi (belum dipakai di scaffolding, sengaja opsional)
-  GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().optional(),
-  GOOGLE_PRIVATE_KEY: z.string().optional(),
-  SMTP_HOST: z.string().optional(),
-  SMTP_PORT: z.coerce.number().int().positive().optional(),
+  /**
+   * Kredensial service account Google. Opsional supaya worker tetap bisa hidup
+   * dan memproses notifikasi email di instalasi yang tidak memakai spreadsheet;
+   * job sheet-sync-lah yang gagal dengan pesan jelas, bukan seluruh service yang
+   * menolak start.
+   */
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().trim().min(1).optional(),
+  GOOGLE_PRIVATE_KEY: z.string().min(1).optional(),
+
+  /** `console` = email hanya dicetak ke log, tidak benar-benar dikirim. */
+  MAIL_PROVIDER: z.enum(['smtp', 'console']).default('console'),
+  SMTP_HOST: z.string().trim().min(1).optional(),
+  SMTP_PORT: z.coerce.number().int().positive().default(587),
+  SMTP_SECURE: z
+    .string()
+    .default('false')
+    .transform((value) => value === 'true'),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
-  MAIL_FROM: z.string().optional(),
+  MAIL_FROM: z.string().trim().min(1).optional(),
+
+  /** Base URL dashboard, dipakai untuk tautan "buka submission" di isi email. */
+  DASHBOARD_URL: z.url().default('http://localhost:3000'),
 });
 
 export type WorkerEnv = z.infer<typeof envSchema>;
@@ -61,6 +76,22 @@ export function buildDatabaseUrl(): string {
   const user = encodeURIComponent(env.POSTGRES_USER);
   const password = encodeURIComponent(env.POSTGRES_PASSWORD);
   return `postgresql://${user}:${password}@${env.POSTGRES_HOST}:${env.POSTGRES_PORT}/${env.POSTGRES_DB}`;
+}
+
+/**
+ * Private key PEM di file `.env` ditulis satu baris dengan `\n` literal,
+ * karena format .env tidak mengenal nilai multi-baris. Bentuk aslinya
+ * dikembalikan di sini supaya pemanggilnya tidak perlu tahu soal itu.
+ */
+export function googlePrivateKey(): string | null {
+  if (!env.GOOGLE_PRIVATE_KEY) return null;
+
+  // Tanda kutip pembungkus ikut terbawa kalau nilainya di-export langsung dari
+  // shell atau disuntik lewat `docker run -e`. OpenSSL menolak kunci seperti itu
+  // dengan pesan yang tidak menyebut kutipnya sama sekali, jadi dibuang di sini.
+  const unquoted = env.GOOGLE_PRIVATE_KEY.trim().replace(/^(['"])([\s\S]*)\1$/, '$2');
+
+  return unquoted.replace(/\\n/g, '\n');
 }
 
 export function buildRedisUrl(): string {

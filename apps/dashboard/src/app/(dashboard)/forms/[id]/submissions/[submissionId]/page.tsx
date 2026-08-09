@@ -8,9 +8,12 @@ import {
   ExternalLink,
   Globe,
   History,
+  Loader2,
   Mail,
+  RefreshCw,
   Sheet as SheetIcon,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { FormTabs } from '@/components/forms/form-tabs';
 import { IntegrationStatusBadge } from '@/components/submissions/integration-status-badge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -21,6 +24,8 @@ import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import type { SubmissionAnswerEntry, SubmissionDetail } from '@/lib/api-types';
 import { formatDateTime } from '@/lib/format';
+import { useHasPermission } from '@/lib/hooks/use-auth';
+import { useRetrySubmissionIntegrations } from '@/lib/hooks/use-integrations';
 import { useSubmission } from '@/lib/hooks/use-submissions';
 
 export default function SubmissionDetailPage() {
@@ -136,7 +141,7 @@ export default function SubmissionDetailPage() {
         </CardContent>
       </Card>
 
-      <IntegrationSection integrations={submission.integrations} />
+      <IntegrationSection submissionId={submission.id} integrations={submission.integrations} />
     </div>
   );
 }
@@ -174,16 +179,29 @@ function AnswerRow({ entry }: { entry: SubmissionAnswerEntry }) {
  * queue dipakai sejak awal (ARCHITECTURE.md bagian 3.5): sudah masuk sheet atau
  * belum, dan email-nya terkirim ke siapa saja.
  */
-function IntegrationSection({ integrations }: { integrations: SubmissionDetail['integrations'] }) {
+function IntegrationSection({
+  submissionId,
+  integrations,
+}: {
+  submissionId: string;
+  integrations: SubmissionDetail['integrations'];
+}) {
   const { sheet, email } = integrations;
+  const hasTarget = sheet.configured || email.configured || email.recipients.length > 0;
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Status Integrasi</CardTitle>
-        <CardDescription>
-          Hasil sinkronisasi spreadsheet dan pengiriman email untuk submission ini.
-        </CardDescription>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base">Status Integrasi</CardTitle>
+            <CardDescription>
+              Hasil sinkronisasi spreadsheet dan pengiriman email untuk submission ini.
+            </CardDescription>
+          </div>
+
+          {hasTarget && <RetryButton submissionId={submissionId} />}
+        </div>
       </CardHeader>
 
       <CardContent className="flex flex-col gap-6">
@@ -288,6 +306,51 @@ function IntegrationSection({ integrations }: { integrations: SubmissionDetail['
         </section>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Menjalankan ulang sync & notifikasi untuk submission ini.
+ *
+ * Aman ditekan berapa kali pun: worker melewati target yang catatannya sudah
+ * berstatus berhasil, jadi yang benar-benar dijalankan ulang hanya yang gagal
+ * atau belum sempat jalan.
+ */
+function RetryButton({ submissionId }: { submissionId: string }) {
+  const retry = useRetrySubmissionIntegrations(submissionId);
+  const canRetry = useHasPermission()('integration.manage');
+
+  if (!canRetry) return null;
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={retry.isPending}
+      onClick={() =>
+        retry.mutate(undefined, {
+          onSuccess: (summary) => {
+            const total = summary.sheetJobs + summary.emailJobs;
+
+            if (total === 0) {
+              toast.info('Tidak ada job yang perlu dijalankan ulang', {
+                description: summary.skipped.join(' · ') || undefined,
+              });
+
+              return;
+            }
+
+            toast.success(`${total} job diantre ulang`, {
+              description: 'Statusnya akan berubah setelah worker selesai memproses.',
+            });
+          },
+          onError: (error) => toast.error(error.message),
+        })
+      }
+    >
+      {retry.isPending ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+      Jalankan ulang
+    </Button>
   );
 }
 

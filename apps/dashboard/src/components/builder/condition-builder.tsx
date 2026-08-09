@@ -47,6 +47,15 @@ interface ConditionBuilderProps {
   availableFields: FormField[];
   /** Teks pengantar, berbeda untuk kondisi field dan kondisi opsi. */
   subjectLabel: string;
+  /**
+   * Label untuk kedua aksi. Bawaannya bahasa visibilitas
+   * ("Tampilkan"/"Sembunyikan"), tapi komponen ini juga dipakai untuk kondisi
+   * yang tidak ada hubungannya dengan tampil-tidaknya sesuatu — misalnya kapan
+   * sebuah notifikasi dikirim — dan di sana kata "Tampilkan" hanya membingungkan.
+   */
+  actionLabels?: { show: string; hide: string };
+  /** Kalimat saat belum ada kondisi sama sekali. */
+  emptyLabel?: string;
   disabled?: boolean;
 }
 
@@ -55,6 +64,8 @@ export function ConditionBuilder({
   onChange,
   availableFields,
   subjectLabel,
+  actionLabels = { show: 'Tampilkan', hide: 'Sembunyikan' },
+  emptyLabel,
   disabled,
 }: ConditionBuilderProps) {
   const group = conditions?.visibility;
@@ -86,7 +97,9 @@ export function ConditionBuilder({
   if (!group) {
     return (
       <div className="flex flex-col gap-2">
-        <p className="text-muted-foreground text-xs">{subjectLabel} selalu tampil.</p>
+        <p className="text-muted-foreground text-xs">
+          {emptyLabel ?? `${subjectLabel} selalu tampil.`}
+        </p>
         <Button type="button" variant="outline" size="sm" onClick={enable} disabled={disabled}>
           <Plus />
           Tambah kondisi
@@ -131,12 +144,14 @@ export function ConditionBuilder({
         <NativeSelect
           value={group.action}
           onChange={(event) => updateGroup({ action: event.target.value as 'show' | 'hide' })}
-          className="h-8 w-28"
+          // Lebarnya mengikuti isi: label aksinya bisa diganti pemanggil
+          // ("Tambahkan", "Jangan kirim"), jadi lebar tetap akan memotong teks.
+          className="h-8 w-auto min-w-28"
           disabled={disabled}
           aria-label="Aksi kondisi"
         >
-          <option value="show">Tampilkan</option>
-          <option value="hide">Sembunyikan</option>
+          <option value="show">{actionLabels.show}</option>
+          <option value="hide">{actionLabels.hide}</option>
         </NativeSelect>
 
         <span className="text-muted-foreground">{subjectLabel.toLowerCase()} jika</span>

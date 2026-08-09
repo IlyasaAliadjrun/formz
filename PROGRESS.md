@@ -3,21 +3,21 @@
 Catatan progres lintas sesi. Setiap part yang selesai dicentang di sini, lengkap dengan
 tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tanpa menebak-nebak.
 
-**Status saat ini:** Part 6 selesai. Berikutnya: Part 7 (Integrasi Google Sheets).
+**Status saat ini:** Part 7 selesai. Berikutnya: Part 8 (sisa workflow notifikasi email).
 
-| Part | Judul                                    | Status     |
-| ---- | ---------------------------------------- | ---------- |
-| 0    | Scaffolding & environment development    | ✅ Selesai |
-| 1    | Skema database & lapisan data            | ✅ Selesai |
-| 2    | Auth & RBAC                              | ✅ Selesai |
-| 3    | Form CRUD & schema engine (API)          | ✅ Selesai |
-| 4    | Form builder UI (dashboard)              | ✅ Selesai |
-| 5    | Form renderer & embed                    | ✅ Selesai |
-| 6    | Submission management                    | ✅ Selesai |
-| 7    | Integrasi Google Sheets (queue + worker) | ⬜ Belum   |
-| 8    | Workflow notifikasi email                | ⬜ Belum   |
-| 9    | Reporting & export                       | ⬜ Belum   |
-| 10   | Deployment self-hosted & operasional     | ⬜ Belum   |
+| Part | Judul                                    | Status      |
+| ---- | ---------------------------------------- | ----------- |
+| 0    | Scaffolding & environment development    | ✅ Selesai  |
+| 1    | Skema database & lapisan data            | ✅ Selesai  |
+| 2    | Auth & RBAC                              | ✅ Selesai  |
+| 3    | Form CRUD & schema engine (API)          | ✅ Selesai  |
+| 4    | Form builder UI (dashboard)              | ✅ Selesai  |
+| 5    | Form renderer & embed                    | ✅ Selesai  |
+| 6    | Submission management                    | ✅ Selesai  |
+| 7    | Integrasi Google Sheets (queue + worker) | ✅ Selesai  |
+| 8    | Workflow notifikasi email                | 🟡 Sebagian |
+| 9    | Reporting & export                       | ⬜ Belum    |
+| 10   | Deployment self-hosted & operasional     | ⬜ Belum    |
 
 ---
 
@@ -700,42 +700,255 @@ memakai fitur bawaannya karena datanya sudah dipotong server.
   sudah menampilkan peringatannya.
 - Rentang tanggal diperlakukan dalam **waktu server** (UTC di compose). Untuk
   pemakaian lintas zona waktu, filter perlu menerima offset dari klien.
-- Log integrasi spreadsheet dicocokkan lewat `target = spreadsheetId`. Worker
-  Part 7 harus menulis kolom `target` dengan nilai itu, kalau tidak status di
-  halaman detail tidak akan menempel ke integrasi yang benar saat satu form punya
-  lebih dari satu tujuan.
-- Penerima dinamis (`notification_rules.recipient_rules`) belum ikut dihitung di
-  `expectedRecipients` — baru `recipients` yang statis. Menunggu Part 8 yang
-  menentukan cara evaluasinya.
-- Belum ada aksi retry manual dari dashboard (Part 7) dan belum ada hapus/arsip
-  submission (dipindah ke Part 9).
+- ~~Log integrasi spreadsheet dicocokkan lewat `target = spreadsheetId`~~ → diubah di
+  Part 7 menjadi id integrasi, karena `spreadsheetId` tidak bisa membedakan dua
+  integrasi yang menulis ke tab berbeda dalam satu spreadsheet.
+- ~~Penerima dinamis belum ikut dihitung di `expectedRecipients`~~ → selesai di Part 7.
+- ~~Belum ada aksi retry manual dari dashboard~~ → selesai di Part 7. Hapus/arsip
+  submission tetap dipindah ke Part 9.
 - Belum ada sort per kolom; urutan tetap terbaru dulu.
 
-## ⬜ Part 7 — Integrasi Google Sheets (queue + worker)
+## ✅ Part 7 — Integrasi Google Sheets & notifikasi email (queue + worker)
 
-- [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5 & 6), lalu
-      nyalakan validasi `file_upload` di `answer-validation.ts`
-- [ ] Producer BullMQ di API saat submission masuk
-- [ ] Job `sync-to-sheet` idempotent (key = `submission_id`)
-- [ ] Autentikasi service account + Google Sheets API v4 (append row)
-- [ ] Retry + exponential backoff, tulis hasil ke `submission_integration_logs`
-- [ ] UI konfigurasi target spreadsheet & mapping kolom per form
-- [ ] Aksi retry manual dari dashboard
-- [ ] Bull Board untuk memantau queue
+_Selesai: 9 Agustus 2026_
 
-## ⬜ Part 8 — Workflow notifikasi email
+- [x] Producer BullMQ di API, job diantre saat submission masuk
+- [x] Job `sync-to-sheet` idempotent (kunci: unique index `(submission_id, type, target)`)
+- [x] Autentikasi service account + Google Sheets API v4 (`values.append`)
+- [x] Retry + exponential backoff, dengan pemisahan error yang layak diulang
+- [x] Setiap perubahan status ditulis ke `submission_integration_logs`
+- [x] Job `send-notification` idempotent per **alamat penerima**
+- [x] Adaptor pengiriman email yang bisa ditukar (`smtp` lewat Nodemailer, `console` untuk dev)
+- [x] Template email React Email — dua varian: ringkasan jawaban & pemberitahuan singkat
+- [x] Penerima: email tetap + field email pengisi (auto-reply) + penerima bersyarat
+- [x] Kondisi kapan notifikasi dikirim, memakai `ConditionGroup` yang sama dengan show/hide field
+- [x] CRUD `/admin/forms/:id/integrations` & `/admin/forms/:id/notification-rules`
+      (permission baru `integration.manage`)
+- [x] Halaman `/forms/:id/integrations` + tombol **Test Kirim** yang melewati antrean sungguhan
+- [x] Aksi retry manual dari halaman detail submission
+- [x] Bull Board di `/queues` (HTTP Basic auth) + ringkasan antrean di dashboard
+- [x] Migrasi `notification_rules`: kolom `name`, `subject`, `condition`, `recipient_field_ids`
+- [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5 & 6) → **dipindah ke Part 9**,
+      lihat catatan di bawah
 
-- [ ] Job `send-notification` idempotent + retry
-- [ ] Integrasi SMTP relay (Postmark/SES)
-- [ ] Template email (React Email/MJML) dengan isi jawaban submission
-- [ ] Konfigurasi penerima notifikasi per form (termasuk auto-reply ke pengisi)
-- [ ] Trigger berbasis kondisi jawaban
-- [ ] Log status kirim (delivered/bounced) di `submission_integration_logs`
+**Terverifikasi (Playwright, 26 pemeriksaan lolos):**
+
+- Halaman `/forms/:id/integrations` menampilkan alamat service account siap salin,
+  target spreadsheet, aturan notifikasi, dan ringkasan kedua antrean
+- **Test Kirim** notifikasi mengirim ke alamat uji coba dan melaporkan subjek
+  hasil render (`Pendaftar baru {{form}}: {{nama_lengkap}}` → judul form + jawaban)
+- **Test Kirim** spreadsheet dengan kredensial belum benar memunculkan pesan yang
+  menyebut variabel mana yang perlu diperbaiki, bukan `500 Internal server error`
+- Dialog aturan notifikasi memakai `ConditionBuilder` yang sama dengan form builder,
+  lengkap dengan pilihan opsi ("Kelas Lanjutan") alih-alih id opsi mentah
+- Detail submission menampilkan status sheet **Gagal** beserta pesan errornya,
+  jumlah percobaan ulang, dan status per alamat email penerima
+- Bull Board: 401 tanpa kredensial, 401 dengan password salah, 200 dengan yang benar
+
+**Terverifikasi (curl + database):**
+
+- Submit publik dengan `Kelas Lanjutan` mengantrekan 1 job email untuk **3 penerima**
+  (email tetap, jawaban field email pengisi, dan penerima bersyarat); submit dengan
+  `Kelas Dasar` hanya 2 — aturan bersyaratnya memang tidak terpenuhi
+- Retry manual pada submission yang sudah berhasil menghasilkan `0/2 email terkirim`,
+  tanpa baris log baru dan tanpa `retry_count` bertambah
+- Log sheet yang gagal tercatat dengan `target` = id integrasi, pesan error tersimpan,
+  dan job **tidak** diulang karena kegagalannya jenis konfigurasi
+- Kunci RSA sungguhan + service account yang tidak terdaftar → JWT ditandatangani,
+  Google menjawab `invalid_grant: Invalid grant: account not found`, dan pesan itu
+  sampai utuh ke layar admin
+- URL spreadsheet lengkap yang ditempel tersimpan sebagai id-nya saja
+
+`pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test` (185 test), `format:check`,
+dan `next build` semuanya bersih.
+
+### Keputusan desain
+
+**Service account, bukan OAuth per pengguna.** Ini pertanyaan yang paling
+menentukan bentuk fitur ini, dan jawabannya bertumpu pada satu kenyataan:
+aplikasi ini di-_self-host_ oleh banyak orang di domain masing-masing. Alur OAuth
+"Login with Google" menuntut setiap pemasang mendaftarkan OAuth client sendiri
+dengan redirect URI sesuai domainnya, dan karena scope Sheets termasuk sensitif,
+aplikasinya harus melewati verifikasi Google — kalau tidak, refresh token milik
+pengguna di luar daftar tester kedaluwarsa **setiap tujuh hari** dan sync berhenti
+diam-diam. Di atas itu, aplikasi jadi harus menyimpan refresh token milik orang
+lain sebagai rahasia jangka panjang, dan sync ikut mati begitu karyawan yang
+menghubungkannya keluar dari perusahaan.
+
+Service account membalik semuanya: server punya identitas sendiri, admin
+membagikan spreadsheet ke alamat itu seperti membagikannya ke rekan kerja, dan
+aksesnya berhenti persis di dokumen yang dibagikan. Harga yang dibayar — baris
+tercatat dibuat oleh service account, dan Formz tidak bisa membuat spreadsheet
+baru karena service account tidak punya kuota Drive — justru sejalan dengan
+apa yang diinginkan di sini.
+
+**Idempotency ditegakkan satu pernyataan SQL, bukan cek-lalu-tulis.**
+`beginLog()` melakukan `INSERT ... ON CONFLICT DO UPDATE ... WHERE status <> 'success'
+RETURNING id`. Kalau pekerjaannya sudah pernah tuntas, `WHERE`-nya tidak cocok,
+tidak ada baris yang dikembalikan, dan pemanggil tahu harus berhenti. Pemeriksaan
+dan penandaan terjadi dalam satu operasi atomik — pola "SELECT dulu, lalu UPDATE"
+menyisakan celah di antara keduanya yang bisa membuat dua percobaan sama-sama
+lolos lalu sama-sama menulis baris ke spreadsheet. Unique index yang menopangnya
+sudah ada sejak Part 1, memang untuk ini.
+
+**Deduplikasi penerima dilakukan di API, bukan di worker.** Hanya API yang
+melihat seluruh aturan notifikasi sebuah form sekaligus, jadi hanya di sana satu
+alamat bisa dipastikan tidak dikirimi dua kali ketika sebuah submission cocok
+dengan dua aturan. Konsekuensinya disengaja: satu alamat menerima satu email per
+submission, dan aturan yang terdaftar lebih dulu yang memenangkan alamat itu.
+Ini sekaligus yang membuat `target` = alamat email tetap unik per submission,
+sehingga status per penerima di halaman detail tidak pernah ambigu.
+
+**Kegagalan sebagian tidak menggagalkan job email.** Satu alamat yang ditolak
+relay tidak boleh membatalkan pengiriman ke penerima lain, jadi tiap penerima
+punya baris log sendiri dan job tetap dianggap selesai. Yang dilempar hanya
+kegagalan yang menimpa **semua** penerima — itu pertanda relay-nya yang
+bermasalah, bukan alamatnya — dan retry-nya hanya menyentuh yang belum berhasil.
+
+**Retry dipisah antara yang bisa pulih dan yang tidak.** Kuota terlampaui (429)
+dan gangguan di sisi Google (5xx) diulang dengan exponential backoff. Spreadsheet
+yang belum dibagikan ke service account (403), id yang salah (404), dan nama tab
+yang tidak ada (400) dilempar sebagai `UnrecoverableError` — mengulanginya lima
+kali tidak mengubah apa pun selain menunda pesan errornya sampai ke layar admin
+belasan menit lebih lama.
+
+**Tombol "Test Kirim" menempuh antrean, bukan jalan pintas.** Job uji coba
+dikirim ke queue yang sama, diproses worker yang sama, memakai kredensial dan
+konfigurasi yang sama, lalu API menunggu hasilnya lewat `job.waitUntilFinished()`.
+Uji coba yang menempuh jalur berbeda dari produksi tidak membuktikan apa pun.
+Bedanya hanya dua: datanya jawaban contoh, dan hasilnya **tidak** dicatat ke
+`submission_integration_logs` — tabel itu catatan tentang submission sungguhan,
+dan mengisinya dengan hasil percobaan membuat riwayat integrasi tidak bisa dipercaya.
+
+**Bull Board sengaja di luar namespace `/admin`.** Halaman itu disajikan Express
+langsung dan tidak melewati `JwtAuthGuard`/`PermissionsGuard`; menaruhnya di
+`/admin` akan membuat aturan Part 2 — "semua endpoint /admin lewat guard" — tidak
+lagi benar apa adanya. Autentikasinya HTTP Basic dengan kredensial terpisah,
+karena dashboard menyimpan token di localStorage pada origin berbeda sehingga
+tidak bisa dititipkan lewat cookie tanpa `SameSite=None` yang hanya jalan di HTTPS.
+Kalau kredensialnya kosong, halamannya **tidak dipasang sama sekali** — bawaannya
+tertutup, bukan terbuka.
+
+**`console` jadi provider email bawaan.** Server yang belum dikonfigurasi tidak
+boleh bisa mengirim email ke alamat sungguhan hanya karena ada satu variabel yang
+lupa diisi. Kalau salah, lebih baik emailnya tidak terkirim dan terlihat jelas di
+log daripada terkirim ke tempat yang salah. Halaman integrasi menampilkan
+peringatan selama provider-nya masih `console`, jadi keadaan itu tidak bisa
+luput dari perhatian.
+
+**Worker memakai SQL langsung, bukan Prisma Client.** Client-nya di-generate ke
+`apps/api/src/generated`, jadi memakainya dari worker berarti mengimpor isi perut
+aplikasi lain — atau schema Prisma-nya harus dipindah ke paket tersendiri. Yang
+dibutuhkan worker hanya enam query berbentuk tetap, dan yang terpenting di
+antaranya (upsert log) justru lebih tepat ditulis sebagai satu pernyataan SQL
+karena bagian `ON CONFLICT ... WHERE`-nya yang menjadi kunci idempotency.
+Pemindahan schema ke `packages/db` baru sepadan kalau worker perlu akses jauh
+lebih luas.
+
+**Isi email dirender dari `describeAnswers()` yang sama dengan halaman detail dan
+ekspor.** Label field dan label opsi di email karena itu selalu mengikuti versi
+form yang benar, dan tidak ada penerjemahan jawaban versi ketiga yang perlahan
+menyimpang dari dua lainnya. Versi teks email pun dirender dari komponen React
+yang sama, bukan ditulis terpisah.
+
+**Kondisi notifikasi memakai `ConditionBuilder` milik form builder.** Komponen itu
+sudah terkendali penuh lewat props, jadi bisa dipakai ulang apa adanya — dan
+artinya operator serta cara memilih nilai opsi persis sama dengan yang sudah
+dikenal orang dari builder. Yang ditambahkan hanya prop `actionLabels`, karena
+kata "Tampilkan" tidak masuk akal untuk kondisi yang menentukan kapan email dikirim.
+
+**`integration.manage` dipisah dari `form.edit`.** Konfigurasi integrasi memuat
+alamat email tujuan notifikasi dan id spreadsheet internal. Orang yang boleh
+menyusun field belum tentu boleh menentukan ke mana jawabannya diteruskan.
+Permission ini diberikan ke Super Admin dan Form Manager, tidak ke Viewer.
+
+### Perbaikan yang ditemukan sambil jalan
+
+**Timestamp meleset sebesar offset zona waktu server.** Ketahuan saat memeriksa
+waktu yang tertulis di email notifikasi: submission yang masuk pukul 11:52 UTC
+tersimpan sebagai `2026-08-09 11:52:37+07` — yaitu 04:52 UTC, tujuh jam lebih awal.
+Penyebabnya, nilai `@default(now())` dan `@updatedAt` dihasilkan Prisma di sisi
+aplikasi lalu dikirim **tanpa keterangan zona waktu**, sehingga PostgreSQL
+menafsirkannya memakai timezone sesi — yang mengikuti `TZ` container (Asia/Jakarta).
+Baris yang ditulis dengan `DEFAULT CURRENT_TIMESTAMP` milik database tidak kena.
+Ini bug yang sudah ada sejak Part 5 dan menyentuh seluruh timestamp yang ditulis
+Prisma, bukan hanya submission. Diperbaiki dengan memaksa zona sesi ke UTC lewat
+`options: '-c timezone=UTC'` di `PrismaService` dan di pool `pg` milik worker.
+Kolomnya `timestamptz`, jadi cara nilainya ditampilkan ke pembaca tidak berubah.
+
+**Kegagalan job uji coba muncul sebagai `500 Internal server error`.**
+`job.waitUntilFinished()` melempar `Error` biasa berisi alasan kegagalan, dan Nest
+mengubah error yang bukan `HttpException` menjadi 500 dengan pesan generik — jadi
+pesan dari Google yang justru paling berguna hilang di jalan. Sekarang dibungkus
+`UnprocessableEntityException` sehingga sampai utuh ke layar.
+
+**Pesan OpenSSL diterjemahkan.** Private key yang salah bentuk ditolak dengan
+`error:1E08010C:DECODER routines::unsupported`, yang tidak menyebut variabel mana
+pun. Sekarang diterjemahkan jadi kalimat yang menyebut `GOOGLE_PRIVATE_KEY` dan
+apa yang harus disalin dari berkas JSON service account. Tanda kutip pembungkus
+yang ikut terbawa saat nilainya di-export dari shell juga dibuang, karena OpenSSL
+menolak kunci seperti itu tanpa menyinggung kutipnya sama sekali.
+
+**`AlertDescription` memakai `grid`,** sehingga teks dan `<code>` yang berdampingan
+jatuh ke baris masing-masing. Isinya sekarang dibungkus `<p>`.
+
+**Pencocokan log sheet diubah dari `spreadsheetId` ke id integrasi.** Catatan Part 6
+menyebut worker harus menulis `target = spreadsheetId`, tapi itu tidak cukup
+membedakan dua integrasi yang menulis ke **tab berbeda dalam satu spreadsheet** —
+keduanya akan berebut baris log yang sama. Nama sheet dan tautannya di layar tetap
+diambil dari konfigurasi, jadi id di kolom `target` memang tidak perlu terbaca manusia.
+
+**Penerima dinamis kini ikut dihitung di `expectedRecipients`.** Catatan Part 6
+menyebutkannya sebagai kekurangan yang menunggu Part 8. Halaman detail submission
+sekarang memakai `resolveRecipients()` yang sama dengan yang dipakai saat mengantre
+job, jadi daftar di layar tidak bisa berbeda dari daftar yang benar-benar dikirimi.
+
+**Catatan untuk part berikutnya:**
+
+- **Penulisan baris ke spreadsheet sungguhan belum diuji dengan kredensial asli.**
+  Yang sudah terbukti sampai ujung: penandatanganan JWT, panggilan ke endpoint token
+  Google, pembacaan pesan errornya, klasifikasi retry, penyusunan baris, dan seluruh
+  jalur antrean serta pencatatan log. Yang belum: respons `values.append` dan
+  `values.get` dari Google. Begitu `GOOGLE_*` diisi kredensial betulan, tombol
+  **Test Kirim** di `/forms/:id/integrations` adalah cara tercepat memastikannya.
+- **Upload file ke MinIO dipindah ke Part 9.** Item ini sudah berpindah dua kali
+  (Part 5 → 6 → 7) dan tidak ada hubungannya dengan queue maupun integrasi; menaruhnya
+  bersama pekerjaan storage di Part 9 lebih masuk akal daripada menempelkannya ke
+  part mana pun yang kebetulan sedang dikerjakan. Setelah itu, menyalakan validasinya
+  berarti menghapus satu early-return di `answer-validation.ts`.
+- `googleapis` adalah paket metapackage yang besar (~100 MB terpasang). Untuk image
+  produksi Part 10, `@googleapis/sheets` berisi kode yang sama untuk API ini saja dan
+  bisa menggantikannya tanpa mengubah pemanggilnya.
+- Belum ada webhook status pengiriman (delivered/bounced) dari provider email.
+  `submission_integration_logs` mencatat "diterima relay", bukan "sampai ke inbox".
+- Job uji coba menunggu maksimal 30 detik lewat `waitUntilFinished`. Kalau worker
+  sedang sibuk memproses antrean panjang, uji coba bisa kehabisan waktu padahal
+  konfigurasinya benar. Prioritas job khusus uji coba bisa ditambahkan kalau ini
+  mulai mengganggu.
+- Template email masih dua varian tetap. Template buatan sendiri per form berarti
+  `email_template_id` jadi foreign key ke tabel template, sesuai rencana awal Part 1.
+
+## 🟡 Part 8 — Workflow notifikasi email
+
+Sebagian besar sudah selesai bersama Part 7 (job, adaptor SMTP, template React Email,
+penerima, kondisi, log status). Sisanya:
+
+- [x] ~~Job `send-notification` idempotent + retry~~ → selesai di Part 7
+- [x] ~~Integrasi SMTP relay (Postmark/SES)~~ → selesai di Part 7
+- [x] ~~Template email (React Email) dengan isi jawaban submission~~ → selesai di Part 7
+- [x] ~~Konfigurasi penerima notifikasi per form (termasuk auto-reply ke pengisi)~~ → Part 7
+- [x] ~~Trigger berbasis kondisi jawaban~~ → selesai di Part 7
+- [ ] Status delivered/bounced dari webhook provider (sekarang baru "diterima relay")
+- [ ] Template email buatan sendiri per form (`email_template_id` jadi foreign key)
+- [ ] Batas laju pengiriman per form, supaya lonjakan submission tidak menghabiskan
+      kuota provider dalam sekali jalan
 
 ## ⬜ Part 9 — Reporting & export
 
 - [ ] Manajemen user & role di dashboard (dipindah dari Part 4)
 - [ ] Hapus/arsip submission sesuai permission (dipindah dari Part 6)
+- [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5, 6, & 7),
+      lalu nyalakan validasi `file_upload` di `answer-validation.ts`
 - [ ] Pencarian teks bebas pada jawaban (butuh index trigram, lihat catatan Part 6)
 - [ ] Query agregasi + materialized view untuk report berat
 - [ ] Jadwal refresh materialized view
