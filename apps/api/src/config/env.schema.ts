@@ -5,6 +5,24 @@ import { z } from 'zod';
  * Nilainya divalidasi saat boot supaya salah konfigurasi ketahuan lebih awal,
  * bukan pas request pertama masuk.
  */
+
+/**
+ * Variabel opsional berupa teks: **string kosong sama artinya dengan tidak diisi**.
+ *
+ * Bedanya penting justru di produksi. `docker-compose.prod.yml` menulis
+ * `GOOGLE_PRIVATE_KEY: ${GOOGLE_PRIVATE_KEY:-}`, jadi variabel yang sengaja
+ * dikosongkan sampai ke sini sebagai string kosong, bukan sebagai absen. Tanpa
+ * penyeragaman ini, `.min(1).optional()` menolaknya dan seluruh API gagal boot —
+ * padahal instalasi yang memang tidak memakai integrasi Google atau Bull Board
+ * berhak mengosongkannya.
+ */
+function optionalText(schema: z.ZodString = z.string().trim().min(1)) {
+  return z.preprocess(
+    (value) => (typeof value === 'string' && value.trim() === '' ? undefined : value),
+    schema.optional(),
+  );
+}
+
 export const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_HOST: z.string().default('0.0.0.0'),
@@ -17,16 +35,16 @@ export const envSchema = z.object({
   POSTGRES_USER: z.string().min(1),
   POSTGRES_PASSWORD: z.string().min(1),
   /** Kalau diisi, dipakai apa adanya dan menimpa POSTGRES_* di atas. */
-  DATABASE_URL: z.string().optional(),
+  DATABASE_URL: optionalText(z.string()),
   POSTGRES_POOL_MAX: z.coerce.number().int().positive().default(10),
 
   // Redis (cache + broker BullMQ)
   REDIS_HOST: z.string().default('localhost'),
   REDIS_PORT: z.coerce.number().int().positive().default(6379),
-  REDIS_PASSWORD: z.string().optional(),
+  REDIS_PASSWORD: optionalText(z.string()),
   REDIS_DB: z.coerce.number().int().nonnegative().default(0),
   /** Kalau diisi, dipakai apa adanya dan menimpa REDIS_* di atas. */
-  REDIS_URL: z.string().optional(),
+  REDIS_URL: optionalText(z.string()),
 
   // CORS untuk dashboard admin (endpoint publik punya whitelist per form sendiri)
   DASHBOARD_URL: z.string().default('http://localhost:3000'),
@@ -68,9 +86,9 @@ export const envSchema = z.object({
   // Integrasi Google Sheets. Kredensialnya berupa service account: server punya
   // identitas sendiri, dan admin membagikan spreadsheet ke alamat itu. Alasan
   // lengkapnya ada di header integrations.controller.ts.
-  GOOGLE_SERVICE_ACCOUNT_EMAIL: z.string().trim().min(1).optional(),
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: optionalText(),
   /** Private key PEM. Newline boleh ditulis sebagai `\n` supaya muat satu baris di .env. */
-  GOOGLE_PRIVATE_KEY: z.string().min(1).optional(),
+  GOOGLE_PRIVATE_KEY: optionalText(z.string().min(1)),
 
   // Pengiriman email notifikasi.
   /**
@@ -79,24 +97,18 @@ export const envSchema = z.object({
    * environment variable. Isi `smtp` (plus SMTP_* di bawah) untuk mengaktifkannya.
    */
   MAIL_PROVIDER: z.enum(['smtp', 'console']).default('console'),
-  SMTP_HOST: z.string().trim().min(1).optional(),
+  SMTP_HOST: optionalText(),
   SMTP_PORT: z.coerce.number().int().positive().default(587),
   SMTP_SECURE: z
     .string()
     .default('false')
     .transform((value) => value === 'true'),
-  SMTP_USER: z.string().optional(),
-  SMTP_PASSWORD: z.string().optional(),
+  SMTP_USER: optionalText(z.string()),
+  SMTP_PASSWORD: optionalText(z.string()),
   /** Alamat pengirim, misal `Formz <no-reply@example.com>`. */
-  MAIL_FROM: z.string().trim().min(1).optional(),
+  MAIL_FROM: optionalText(),
 
-  // Bull Board — pemantauan antrean.
-  /**
-   * Sengaja **di luar** namespace /admin: halaman ini disajikan Express langsung,
-   * jadi ia tidak melewati JwtAuthGuard/PermissionsGuard seperti seluruh endpoint
-   * /admin lainnya. Menaruhnya di /admin akan membuat aturan "semua /admin lewat
-   * guard" jadi tidak lagi benar apa adanya.
-   */
+  // Reporting.
   /**
    * Jadwal refresh materialized view laporan, format cron 5 kolom.
    *
@@ -114,17 +126,24 @@ export const envSchema = z.object({
     )
     .default('*/15 * * * *'),
 
+  // Bull Board — pemantauan antrean.
+  /**
+   * Sengaja **di luar** namespace /admin: halaman ini disajikan Express langsung,
+   * jadi ia tidak melewati JwtAuthGuard/PermissionsGuard seperti seluruh endpoint
+   * /admin lainnya. Menaruhnya di /admin akan membuat aturan "semua /admin lewat
+   * guard" jadi tidak lagi benar apa adanya.
+   */
   QUEUE_DASHBOARD_PATH: z.string().startsWith('/').default('/queues'),
   /** Kalau salah satu kosong, Bull Board tidak dipasang sama sekali (fail closed). */
-  QUEUE_DASHBOARD_USER: z.string().trim().min(1).optional(),
-  QUEUE_DASHBOARD_PASSWORD: z.string().min(8).optional(),
+  QUEUE_DASHBOARD_USER: optionalText(),
+  QUEUE_DASHBOARD_PASSWORD: optionalText(z.string().min(8)),
 
   // Object storage (MinIO / S3-compatible)
-  S3_ENDPOINT: z.string().optional(),
+  S3_ENDPOINT: optionalText(z.string()),
   S3_REGION: z.string().default('us-east-1'),
-  S3_BUCKET: z.string().optional(),
-  S3_ACCESS_KEY_ID: z.string().optional(),
-  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_BUCKET: optionalText(z.string()),
+  S3_ACCESS_KEY_ID: optionalText(z.string()),
+  S3_SECRET_ACCESS_KEY: optionalText(z.string()),
   S3_FORCE_PATH_STYLE: z
     .string()
     .default('true')

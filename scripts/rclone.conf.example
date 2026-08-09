@@ -1,0 +1,79 @@
+; Template konfigurasi rclone untuk backup offsite Formz.
+;
+; JANGAN mengisi kredensial di berkas ini dan JANGAN meng-commit berkas yang
+; sudah terisi — scripts/rclone.conf sudah masuk .gitignore.
+;
+; Cara pakai di server:
+;
+;   1. Pasang rclone
+;        sudo -v ; curl https://rclone.org/install.sh | sudo bash
+;
+;   2. Buat konfigurasi secara interaktif (cara yang disarankan — rclone
+;      menuliskan sendiri format dan token yang benar):
+;        rclone config --config /home/formz/formz/scripts/rclone.conf
+;      Beri nama remote-nya "offsite" supaya cocok dengan RCLONE_REMOTE
+;      di .env.production.
+;
+;   3. Kunci izin berkasnya — isinya kunci akses ke seluruh arsip backup:
+;        chmod 600 /home/formz/formz/scripts/rclone.conf
+;
+;   4. Uji koneksinya sebelum menggantungkan backup padanya:
+;        rclone --config .../rclone.conf lsd offsite:
+;
+; Alternatif kalau lebih suka menyalin manual: contoh di bawah bisa disalin ke
+; scripts/rclone.conf lalu diisi. Pilih SATU blok sesuai penyedia yang dipakai;
+; hapus sisanya.
+;
+; Catatan keamanan: buat kredensial khusus backup dengan izin sekecil mungkin —
+; cukup tulis ke satu bucket, tanpa izin hapus permanen kalau penyedianya
+; mendukung. Kunci yang bisa menghapus segalanya tidak banyak menolong ketika
+; yang dihadapi adalah ransomware.
+
+; ---------------------------------------------------------------------------
+; Backblaze B2 — paling murah untuk arsip sekelas ini
+; ---------------------------------------------------------------------------
+; Buat "Application Key" khusus (bukan master key) yang dibatasi ke satu bucket.
+[offsite]
+type = b2
+account = GANTI_DENGAN_APPLICATION_KEY_ID
+key = GANTI_DENGAN_APPLICATION_KEY
+hard_delete = false
+
+; ---------------------------------------------------------------------------
+; Amazon S3 / Cloudflare R2 / MinIO lain (S3-compatible)
+; ---------------------------------------------------------------------------
+; [offsite]
+; type = s3
+; provider = AWS               ; atau Cloudflare, Minio, Wasabi, ...
+; access_key_id = GANTI_DENGAN_ACCESS_KEY
+; secret_access_key = GANTI_DENGAN_SECRET_KEY
+; region = ap-southeast-1
+; endpoint =                   ; kosongkan untuk AWS; isi untuk R2/Wasabi/MinIO
+; storage_class = STANDARD_IA  ; kelas arsip lebih murah untuk data yang jarang dibaca
+
+; ---------------------------------------------------------------------------
+; Server lain lewat SFTP — kalau memang sudah punya tempat penyimpanan sendiri
+; ---------------------------------------------------------------------------
+; [offsite]
+; type = sftp
+; host = backup.namadomain.com
+; user = formz-backup
+; key_file = /home/formz/.ssh/id_backup   ; kunci khusus backup, bukan kunci login harian
+; shell_type = unix
+
+; ---------------------------------------------------------------------------
+; Enkripsi di sisi klien (opsional, disarankan)
+; ---------------------------------------------------------------------------
+; Membungkus remote di atas supaya isi backup terenkripsi sebelum meninggalkan
+; server — penyedia storage tidak pernah memegang datanya dalam bentuk terbaca.
+; Kalau blok ini dipakai, isi RCLONE_REMOTE=offsite-terenkripsi di .env.production.
+;
+; SIMPAN password dan salt-nya di tempat TERPISAH dari server ini. Kehilangan
+; keduanya berarti seluruh arsip backup tidak bisa dibuka lagi selamanya —
+; termasuk oleh Anda sendiri.
+;
+; [offsite-terenkripsi]
+; type = crypt
+; remote = offsite:formz
+; password = GANTI_DENGAN_HASIL_rclone_obscure
+; password2 = GANTI_DENGAN_HASIL_rclone_obscure_YANG_BERBEDA

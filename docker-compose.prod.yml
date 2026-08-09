@@ -1,0 +1,330 @@
+# Stack produksi Formz — server Ubuntu 24.04 LTS self-hosted.
+#
+# Bedanya dengan docker-compose.yml (development):
+#   - Menjalankan hasil build (docker/prod.Dockerfile), bukan source yang di-mount.
+#     Tidak ada bind mount source, tidak ada hot reload.
+#   - `restart: unless-stopped` di semua service yang memang harus terus hidup.
+#   - Hanya Caddy yang membuka port ke internet (80/443). Postgres, Redis, dan
+#     MinIO tidak punya `ports:` sama sekali — hanya bisa dijangkau dari jaringan
+#     Docker internal. Untuk membukanya sesekali, pakai tunnel SSH (lihat SETUP_SERVER.md).
+#   - Migrasi database dijalankan service `migrator` sekali jalan lalu keluar,
+#     dipanggil deploy.sh sebelum service aplikasi naik.
+#
+# Semua kredensial dibaca dari .env.production (lihat .env.production.example).
+# Jalankan lewat deploy.sh, atau manual:
+#   docker compose --env-file .env.production -f docker-compose.prod.yml up -d
+name: ${COMPOSE_PROJECT_NAME:-formz}
+
+# ---------------------------------------------------------------------------
+# Environment bersama untuk service berbasis Node
+# ---------------------------------------------------------------------------
+x-app-env: &app-env
+  NODE_ENV: production
+  TZ: ${TZ:-UTC}
+
+  # Nama host di bawah ini adalah nama service di jaringan compose.
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: 5432
+  POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB wajib diisi di .env.production}
+  POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER wajib diisi di .env.production}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD wajib diisi di .env.production}
+  POSTGRES_POOL_MAX: ${POSTGRES_POOL_MAX:-10}
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+
+  REDIS_HOST: redis
+  REDIS_PORT: 6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD wajib diisi di .env.production}
+  REDIS_DB: ${REDIS_DB:-0}
+
+  # Dipakai untuk CORS dashboard. Wajib https:// dan wajib sama persis dengan
+  # domain yang diakses browser — beda skema atau beda subdomain berarti CORS ditolak.
+  DASHBOARD_URL: https://${APP_DOMAIN:?APP_DOMAIN wajib diisi di .env.production}
+  EMBED_URL: https://${EMBED_DOMAIN:?EMBED_DOMAIN wajib diisi di .env.production}
+
+  PUBLIC_SCHEMA_CACHE_TTL: ${PUBLIC_SCHEMA_CACHE_TTL:-300}
+  PUBLIC_RATE_LIMIT_PER_MINUTE: ${PUBLIC_RATE_LIMIT_PER_MINUTE:-60}
+  # Wajib true di produksi: API ada di belakang Caddy, dan tanpa ini setiap
+  # submission tercatat ber-IP gateway Docker sehingga rate limit per IP
+  # berubah jadi rate limit global.
+  TRUST_PROXY: ${TRUST_PROXY:-true}
+
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET wajib diisi di .env.production}
+  JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET wajib diisi di .env.production}
+  JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}
+  JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+  BCRYPT_ROUNDS: ${BCRYPT_ROUNDS:-12}
+
+  GOOGLE_SERVICE_ACCOUNT_EMAIL: ${GOOGLE_SERVICE_ACCOUNT_EMAIL:-}
+  GOOGLE_PRIVATE_KEY: ${GOOGLE_PRIVATE_KEY:-}
+
+  MAIL_PROVIDER: ${MAIL_PROVIDER:-console}
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_SECURE: ${SMTP_SECURE:-false}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  MAIL_FROM: ${MAIL_FROM:-}
+
+  REPORT_REFRESH_CRON: ${REPORT_REFRESH_CRON:-*/15 * * * *}
+
+  QUEUE_DASHBOARD_PATH: ${QUEUE_DASHBOARD_PATH:-/queues}
+  QUEUE_DASHBOARD_USER: ${QUEUE_DASHBOARD_USER:-}
+  QUEUE_DASHBOARD_PASSWORD: ${QUEUE_DASHBOARD_PASSWORD:-}
+
+  S3_ENDPOINT: http://minio:9000
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${MINIO_BUCKET:-formz-uploads}
+  S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?MINIO_ROOT_USER wajib diisi di .env.production}
+  S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD wajib diisi di .env.production}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+
+# Argumen build yang tertanam di bundle browser. Mengubahnya menuntut
+# `deploy.sh` dijalankan ulang (yang memang membangun ulang image), bukan
+# sekadar restart container.
+x-browser-build-args: &browser-build-args
+  NEXT_PUBLIC_API_URL: https://${API_DOMAIN:?API_DOMAIN wajib diisi di .env.production}
+  NEXT_PUBLIC_EMBED_URL: https://${EMBED_DOMAIN}
+  VITE_API_URL: https://${API_DOMAIN}
+
+x-logging: &logging
+  # Tanpa batas ini, log JSON Docker tumbuh sampai memenuhi disk server —
+  # dan yang pertama terasa justru Postgres kehabisan ruang, bukan lognya.
+  driver: json-file
+  options:
+    max-size: '20m'
+    max-file: '5'
+
+services:
+  # -------------------------------------------------------------------------
+  # Reverse proxy — satu-satunya service yang terbuka ke internet
+  # -------------------------------------------------------------------------
+  caddy:
+    image: caddy:2-alpine
+    container_name: formz-caddy
+    restart: unless-stopped
+    environment:
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL wajib diisi di .env.production}
+      APP_DOMAIN: ${APP_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+      EMBED_DOMAIN: ${EMBED_DOMAIN}
+      TZ: ${TZ:-UTC}
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp' # HTTP/3
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Sertifikat Let's Encrypt tinggal di sini. JANGAN dihapus saat
+      # membersihkan volume — menerbitkan ulang berkali-kali menabrak
+      # batas penerbitan Let's Encrypt dan domainnya terkunci berjam-jam.
+      - caddydata:/data
+      - caddyconfig:/config
+      - caddylogs:/var/log/caddy
+    depends_on: [api, dashboard, embed]
+    networks: [formz]
+    logging: *logging
+
+  # -------------------------------------------------------------------------
+  # Infrastruktur — tidak ada satu pun yang membuka port ke host
+  # -------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: formz-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB wajib diisi di .env.production}
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER wajib diisi di .env.production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD wajib diisi di .env.production}
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+      TZ: ${TZ:-UTC}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks: [formz]
+    logging: *logging
+
+  redis:
+    image: redis:7-alpine
+    container_name: formz-redis
+    restart: unless-stopped
+    command:
+      [
+        'sh',
+        '-c',
+        'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD" --maxmemory-policy noeviction',
+      ]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD wajib diisi di .env.production}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -a "$$REDIS_PASSWORD" ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    networks: [formz]
+    logging: *logging
+
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    container_name: formz-minio
+    restart: unless-stopped
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER wajib diisi di .env.production}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD wajib diisi di .env.production}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    networks: [formz]
+    logging: *logging
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: formz-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      MINIO_BUCKET: ${MINIO_BUCKET:-formz-uploads}
+    entrypoint:
+      [
+        'sh',
+        '-c',
+        'mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" && mc mb --ignore-existing "local/$$MINIO_BUCKET" && echo "Bucket $$MINIO_BUCKET siap"',
+      ]
+    restart: 'no'
+    networks: [formz]
+    logging: *logging
+
+  # -------------------------------------------------------------------------
+  # Migrasi & seed — sekali jalan, dipanggil deploy.sh sebelum aplikasi naik
+  # -------------------------------------------------------------------------
+  # Sengaja TIDAK dijadikan `depends_on` service api. Migrasi yang berjalan
+  # otomatis setiap container naik berarti restart di tengah malam bisa mengubah
+  # skema database tanpa ada yang menyaksikannya. Di produksi, perubahan skema
+  # harus jadi langkah yang disengaja dan hasilnya terbaca di layar orang yang
+  # menjalankan deploy.
+  migrator:
+    build:
+      context: .
+      dockerfile: docker/prod.Dockerfile
+      target: migrator
+      args: *browser-build-args
+    image: formz-migrator:${IMAGE_TAG:-latest}
+    container_name: formz-migrator
+    environment:
+      <<: *app-env
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      ADMIN_NAME: ${ADMIN_NAME:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: 'no'
+    profiles: ['tools']
+    networks: [formz]
+    logging: *logging
+
+  # -------------------------------------------------------------------------
+  # Aplikasi
+  # -------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: docker/prod.Dockerfile
+      target: api
+      args: *browser-build-args
+    image: formz-api:${IMAGE_TAG:-latest}
+    container_name: formz-api
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [formz]
+    logging: *logging
+
+  worker:
+    build:
+      context: .
+      dockerfile: docker/prod.Dockerfile
+      target: worker
+      args: *browser-build-args
+    image: formz-worker:${IMAGE_TAG:-latest}
+    container_name: formz-worker
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [formz]
+    logging: *logging
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/prod.Dockerfile
+      target: dashboard
+      args: *browser-build-args
+    image: formz-dashboard:${IMAGE_TAG:-latest}
+    container_name: formz-dashboard
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      TZ: ${TZ:-UTC}
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      NEXT_TELEMETRY_DISABLED: '1'
+    networks: [formz]
+    logging: *logging
+
+  embed:
+    build:
+      context: .
+      dockerfile: docker/prod.Dockerfile
+      target: embed
+      args: *browser-build-args
+    image: formz-embed:${IMAGE_TAG:-latest}
+    container_name: formz-embed
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-UTC}
+    networks: [formz]
+    logging: *logging
+
+networks:
+  formz:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  caddydata:
+  caddyconfig:
+  caddylogs:

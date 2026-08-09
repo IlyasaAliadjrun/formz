@@ -1,0 +1,44 @@
+# Penyaji berkas statis untuk form renderer, berjalan di dalam container embed.
+#
+# Bukan reverse proxy: TLS, domain, dan Let's Encrypt semuanya diurus Caddy di
+# depan (docker/Caddyfile). Yang ini hanya melayani hasil `vite build` lewat HTTP
+# di jaringan Docker internal.
+:5173 {
+	root * /srv
+
+	# Halaman renderer beralamat /f/{formKey} tanpa berkas fisik di jalur itu,
+	# jadi apa pun yang tidak cocok dengan berkas nyata dikembalikan ke index.html
+	# dan router di sisi klien yang menentukan formnya.
+	try_files {path} /index.html
+	file_server
+
+	encode gzip zstd
+
+	# Semua isi /assets/ bernama dengan hash isinya (assets/index.1r8Y-HDe.js),
+	# jadi aman di-cache selamanya: berkas yang berubah selalu punya nama baru.
+	# Dicocokkan lewat folder, bukan pola hash — alfabet hash Vite bukan heksadesimal
+	# dan sempat membuat pencocokan berbasis regex meleset tanpa ketahuan.
+	@hashed path /assets/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	# index.html dan embed.js **tidak** boleh di-cache lama: keduanya bernama tetap
+	# dan menunjuk ke berkas beraset-hash yang berubah setiap rilis. Kalau
+	# di-cache, website yang memasang form akan terus memuat versi lama setelah
+	# deploy tanpa ada yang tahu.
+	@volatile path /index.html / /embed.js
+	header @volatile Cache-Control "public, max-age=0, must-revalidate"
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		# Sengaja TIDAK ada X-Frame-Options/frame-ancestors di sini: form renderer
+		# memang dibuat untuk di-iframe website pihak ketiga. Yang membatasi siapa
+		# boleh memasangnya adalah whitelist domain per form di API, bukan header ini.
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

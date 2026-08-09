@@ -14,6 +14,11 @@ out/
 .env
 .env.*
 !.env.example
+!.env.production.example
+
+# konfigurasi rclone berisi kredensial storage offsite
+scripts/rclone.conf
+!scripts/rclone.conf.example
 
 # logs
 *.log

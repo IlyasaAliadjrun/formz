@@ -3,12 +3,13 @@
 Catatan progres lintas sesi. Setiap part yang selesai dicentang di sini, lengkap dengan
 tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tanpa menebak-nebak.
 
-**Status saat ini:** Part 9 (reporting & export) selesai — materialized view, refresh
-berjadwal lewat queue, halaman `/forms/:id/reports`, dan ekspor Excel. Dua item Part 9
-sengaja **tidak** ikut dikerjakan karena bukan bagian dari permintaan reporting: hapus/arsip
-submission dan upload berkas ke MinIO; keduanya beserta pencarian teks bebas dipindah ke
-Part 10. Yang tersisa di Part 8: status delivered/bounced, template email kustom, dan batas
-laju pengiriman.
+**Status saat ini:** seluruh part (0–10) selesai. **Aplikasi siap dipasang ke
+produksi** — panduan lengkapnya di [SETUP_SERVER.md](./SETUP_SERVER.md).
+
+Yang masih terbuka dan sengaja dicatat di Part 10, semuanya di luar jalur "siap
+deploy": status delivered/bounced dari webhook provider email, template email kustom
+per form, batas laju pengiriman per form, hapus/arsip submission, upload berkas ke
+MinIO, pencarian teks bebas pada jawaban, dan Sentry untuk error tracking.
 
 | Part | Judul                                    | Status      |
 | ---- | ---------------------------------------- | ----------- |
@@ -22,7 +23,7 @@ laju pengiriman.
 | 7    | Integrasi Google Sheets (queue + worker) | ✅ Selesai  |
 | 8    | Workflow notifikasi email                | 🟡 Sebagian |
 | 9    | Reporting & export                       | ✅ Selesai  |
-| 10   | Deployment self-hosted & operasional     | ⬜ Belum    |
+| 10   | Deployment self-hosted & operasional     | ✅ Selesai  |
 
 ---
 
@@ -1256,22 +1257,208 @@ berarti yang kedua pasti tertinggal saat yang pertama diperbaiki.
 - Tren dan filter memakai **tanggal UTC**. Untuk pemakaian lintas zona waktu, bucket-nya
   perlu dihitung ulang per zona — sama seperti catatan filter tanggal di Part 6.
 
-## ⬜ Part 10 — Deployment self-hosted & operasional
+## ✅ Part 10 — Deployment self-hosted & operasional
 
-Ditambah tiga item yang pindah dari Part 9 karena bukan bagian dari pekerjaan reporting:
+_Selesai: 9 Agustus 2026_
 
+- [x] `docker/prod.Dockerfile` multi-stage, lima target (api, worker, dashboard, embed, migrator)
+- [x] `docker-compose.prod.yml` — image hasil build, tanpa bind mount source,
+      `restart: unless-stopped`, hanya Caddy yang membuka port ke internet
+- [x] Reverse proxy **Caddy** + HTTPS otomatis Let's Encrypt (`docker/Caddyfile`)
+- [x] Routing tiga domain: `app.` → dashboard, `api.` → API, `embed.` → form renderer
+- [x] `docker/embed.Caddyfile` — penyaji statis form renderer dengan fallback SPA
+      dan aturan cache per jenis berkas
+- [x] `deploy.sh` — prasyarat → git pull → build → migrasi → up → verifikasi → bersih-bersih
+- [x] Migrasi dijalankan sebagai langkah tersendiri **sebelum** aplikasi naik, bukan
+      sebagai `depends_on`
+- [x] Unit systemd `formz.service` (ada di SETUP_SERVER.md langkah 11)
+- [x] `scripts/backup.sh` — `pg_dump` + arsip volume MinIO → verifikasi → rclone offsite
+      → retensi lokal & offsite
+- [x] `scripts/rclone.conf.example` — template B2 / S3 / SFTP / crypt, tanpa kredensial
+- [x] `.env.production.example` — seluruh variabel produksi, tanpa kredensial
+- [x] `SETUP_SERVER.md` — 17 langkah dari server kosong sampai melayani, termasuk
+      UFW, Fail2ban, SSH key-only, unattended-upgrades, DNS, cron backup, uji restore,
+      dan Netdata
+- [x] Rotasi log dua lapis: `logging:` per container di compose + logrotate untuk log backup
+- [x] Runbook operasional (SETUP_SERVER.md bagian 16 & 17)
+- [ ] Sentry (error tracking) — belum, lihat catatan di bawah
 - [ ] Hapus/arsip submission sesuai permission (dipindah dari Part 6 & 9)
 - [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5, 6, 7, & 9),
       lalu nyalakan validasi `file_upload` di `answer-validation.ts`
 - [ ] Pencarian teks bebas pada jawaban (butuh index trigram, lihat catatan Part 6)
 
-- [ ] Dockerfile produksi (multi-stage) untuk api, worker, dashboard, embed
-- [ ] `docker-compose.prod.yml` + reverse proxy Caddy/Nginx dengan auto-HTTPS
-- [ ] Routing domain: `app.`, `api.`, `embed.`
-- [ ] Systemd unit supaya stack otomatis naik setelah reboot
-- [ ] `deploy.sh` (git pull → build → up -d → migrate)
-- [ ] Backup terjadwal: `pg_dump` + folder MinIO → rclone ke offsite, **plus tes restore**
-- [ ] Monitoring: Netdata + Sentry + Bull Board
-- [ ] Hardening server: UFW, Fail2ban, SSH key-only, unattended-upgrades
-- [ ] Rotasi log (logrotate / Loki)
-- [ ] Runbook operasional
+Tiga item terakhir bukan pekerjaan deployment; keduanya sudah berpindah beberapa kali
+dan tetap dicatat di sini supaya tidak hilang dari daftar. Aplikasinya sendiri siap
+dipasang tanpa ketiganya.
+
+**Terverifikasi (build & jalankan stack produksi sungguhan di mesin ini):**
+
+- Kelima image terbangun dari `docker/prod.Dockerfile`:
+  embed 89 MB · dashboard 339 MB · worker 611 MB · api 824 MB · migrator 1,02 GB
+- `migrator` menerapkan ketiga migrasi ke database kosong lalu menjalankan seed
+  (10 permission, 3 role, 1 user admin) — semuanya di luar image runtime aplikasi
+- Seluruh service naik dan `api` melaporkan `{"status":"ok"}` dengan Postgres & Redis `up`
+- Ketiga domain terlayani lewat Caddy: dashboard membalas halaman login, API
+  membalas `/health`, embed membalas `index.html` untuk `/f/{formKey}` yang tidak
+  punya berkas fisik
+- Siklus penuh lewat proxy: login → buat form → publish → submit publik → laporan
+  menampilkan 1 submission dengan distribusi jawaban yang benar
+- **TRUST_PROXY terbukti bekerja**: `X-Forwarded-For: 203.0.113.45` yang disisipkan
+  pemanggil **diabaikan**, dan yang tercatat adalah IP klien menurut Caddy
+  (`172.19.0.1`, bukan IP container Caddy `172.19.0.7`)
+- Bull Board di `api.domain/queues`: 401 tanpa kredensial, 200 dengan yang benar
+- Header keamanan sampai ke klien: HSTS, `X-Content-Type-Options`, `Referrer-Policy`,
+  dan `X-Frame-Options: DENY` khusus dashboard
+- Cache embed: aset ber-hash `immutable` setahun, `index.html` & `embed.js`
+  `must-revalidate`; kompresi aktif (110 kB → 33 kB)
+- `caddy validate` bersih untuk kedua Caddyfile
+- `deploy.sh`: menolak jalan saat ada perubahan belum di-commit di server, menolak
+  argumen tak dikenal (exit 2), `--help` bekerja, dan trap error memberi pesan
+  "stack lama masih berjalan" saat langkah `up` gagal
+- `scripts/backup.sh`: dump 8 KB terverifikasi (uji gzip + memastikan memuat
+  `CREATE TABLE public.submissions`), arsip MinIO terverifikasi, retensi lokal jalan
+- **Uji restore sungguhan**: dump dipulihkan ke database terpisah — jumlah baris
+  `forms`/`submissions`/`users` sama persis dengan produksi, dan keempat materialized
+  view laporan ikut kembali
+
+### Keputusan desain
+
+**Caddy, bukan Nginx.** Alasannya satu dan menentukan: HTTPS-nya otomatis. Caddy
+menerbitkan dan memperpanjang sertifikat Let's Encrypt sendiri hanya dari nama domain
+yang ditulis di Caddyfile — tanpa certbot, tanpa cron perpanjangan, tanpa langkah
+bootstrap yang mengharuskan server sudah melayani HTTP sebelum sertifikatnya bisa
+terbit. Di server yang diurus sendiri, sertifikat kedaluwarsa karena timer
+perpanjangan yang diam-diam mati adalah salah satu penyebab downtime paling umum,
+dan itu justru kelas masalah yang paling tidak ingin ditanggung pemasang self-hosted.
+Nginx unggul untuk kendali yang sangat rinci (cache berlapis, upstream hashing, modul
+pihak ketiga); di sini yang dikerjakan hanya meneruskan tiga nama domain ke tiga
+container, dan tidak satu pun keunggulan itu terpakai.
+
+**Satu Dockerfile dengan lima target, bukan empat Dockerfile.** Tahap `deps` dan
+`build` dipakai bersama, jadi `pnpm install` dan build `@formz/shared` berjalan sekali
+untuk semua image alih-alih empat kali. Yang membuat ini benar-benar sepadan bukan
+waktu build pertama, melainkan build berikutnya: mengubah satu berkas di apps/api tidak
+membuat dashboard ikut di-build ulang dari nol.
+
+**Dependency runtime dipasang terfilter per aplikasi.** Percobaan pertama memasang
+seluruh node_modules monorepo lalu menyalinnya ke setiap image — hasilnya api dan
+worker sama-sama 1,66 GB, masing-masing membawa isi perut yang lain (api menyeret
+googleapis ~100 MB yang tidak pernah dipanggilnya, worker menyeret Next.js dan
+Recharts). `pnpm install --prod --filter "@formz/x..."` per aplikasi memangkasnya jadi
+824 MB dan 611 MB tanpa mengubah satu baris kode pun.
+
+**Migrator punya image sendiri yang ramping, bukan `FROM build`.** Versi pertama
+memakai ulang tahap build supaya Prisma CLI dan tsx tersedia — 4,33 GB berisi seluruh
+source, cache Next.js, dan toolchain keempat aplikasi. Menyusunnya sendiri dari empat
+bahan yang benar-benar dibutuhkan (Prisma CLI, berkas migrasi, skrip seed beserta klien
+Prisma hasil generate, dan `@formz/shared`) menurunkannya ke 1,02 GB.
+
+**Binari di migrator dipanggil langsung dari `node_modules/.bin`, bukan lewat
+`pnpm exec`.** pnpm memeriksa keutuhan workspace sebelum menjalankan apa pun, dan image
+migrator sengaja tidak memuat `pnpm-workspace.yaml` maupun source workspace lain —
+pemeriksaan itu menyimpulkan dependency-nya rusak lalu mencoba `pnpm install` **di
+server produksi**. Ketahuan saat uji coba pertama, dan perbaikannya sekaligus
+menghilangkan satu kelas kegagalan yang hanya muncul di produksi.
+
+**Migrasi bukan `depends_on`, melainkan langkah tersendiri di `deploy.sh`.** Migrasi
+yang berjalan otomatis setiap container naik berarti restart di tengah malam bisa
+mengubah skema database tanpa ada yang menyaksikannya. Di produksi, perubahan skema
+harus jadi langkah yang disengaja dan hasilnya terbaca di layar orang yang menjalankan
+deploy. Urutannya pun disengaja — migrasi lebih dulu, aplikasi menyusul — supaya
+migrasi yang gagal menghentikan deploy sementara versi lama tetap melayani.
+
+**Postgres, Redis, dan MinIO tidak punya `ports:` sama sekali.** Bukan ditutup lewat
+firewall: container Docker yang mem-publish port menulis aturan iptables sendiri dan
+**menembus UFW**. Satu-satunya cara yang benar-benar menutup ketiganya adalah tidak
+mem-publish-nya, dan mengaksesnya sesekali lewat tunnel SSH. Ini juga yang membuat
+peringatan di SETUP_SERVER.md perlu ditulis tegas: menambahkan `ports:` "sekadar untuk
+mengecek" membuka database ke internet tanpa peringatan apa pun.
+
+**Domain tertanam di bundle browser saat build.** `NEXT_PUBLIC_*` (Next.js) dan
+`import.meta.env.VITE_*` (Vite) diganti nilainya saat kompilasi, bukan dibaca saat
+container start. Ini bukan pilihan melainkan sifat kedua framework, dan konsekuensinya
+harus terang: mengganti domain menuntut `./deploy.sh` yang membangun ulang, bukan
+mengubah `.env.production` lalu restart. Ditulis di tiga tempat — komentar Dockerfile,
+`.env.production.example`, dan README — karena inilah kesalahan yang paling mungkin
+terjadi saat pindah domain.
+
+**Bull Board tetap di `api.domain/queues`, bukan subdomain sendiri.** Autentikasinya
+HTTP Basic dengan kredensial terpisah (keputusan Part 7), dan menaruhnya di subdomain
+keempat berarti satu nama domain lagi yang perlu DNS dan sertifikat hanya untuk satu
+halaman pemantauan. Kalau kredensialnya dikosongkan, halamannya tidak dipasang sama
+sekali — bawaannya tertutup.
+
+**`backup.sh` membaca `.env.production` per variabel, bukan dengan `source`.** Format
+env-file docker compose tidak sama dengan sintaks shell: `ADMIN_NAME=Super Admin` dan
+`MAIL_FROM=Formz <no-reply@example.com>` sah bagi compose, tapi shell membacanya sebagai
+perintah `Admin` dan sebagai pengalihan input dari berkas — persis yang terjadi saat
+skripnya pertama kali dijalankan. Selain itu, meng-`source` berkas kredensial berarti
+satu tanda backtick yang tidak sengaja terketik di sana akan benar-benar dijalankan,
+di skrip yang berjalan otomatis tiap malam lewat cron.
+
+**Backup memverifikasi isinya, bukan hanya exit code.** Pipe `pg_dump | gzip`
+menyembunyikan kegagalan pg_dump di balik exit code gzip yang sukses, jadi hasilnya
+diperiksa sendiri: ukuran minimum, uji integritas gzip, dan keberadaan
+`CREATE TABLE public.submissions` di dalam dump. Berkas separuh jadi juga dihapus lewat
+trap — ia lebih berbahaya daripada tidak ada berkas sama sekali, karena terlihat seperti
+backup yang sah sampai ada yang mencoba memulihkannya.
+
+**Kredensial storage offsite tidak pernah masuk repo.** `scripts/rclone.conf` ada di
+`.gitignore`; yang ikut ter-commit hanya template beserta petunjuk `rclone config`.
+Templatnya juga menyarankan membuat kunci khusus backup dengan izin sekecil mungkin dan
+menyediakan blok `crypt` untuk enkripsi di sisi klien — dengan peringatan bahwa
+kehilangan password-nya berarti seluruh arsip tidak bisa dibuka lagi selamanya.
+
+**Unit systemd ada, tapi bukan yang menjalankan migrasi.** `restart: unless-stopped`
+plus `systemctl enable docker` sebenarnya sudah cukup untuk naik lagi setelah reboot;
+unit ini menambahkan `docker compose up -d` supaya service yang belum pernah dibuat ikut
+naik, dan memberi satu tempat berhenti/menyala yang eksplisit. Yang sengaja tidak
+dilakukannya adalah migrasi — lihat alasan di atas.
+
+### Perbaikan yang ditemukan sambil jalan
+
+**Variabel opsional yang dikosongkan membuat API dan worker gagal boot.** Ketahuan pada
+percobaan menjalankan stack produksi pertama kali: `.env.production.example` menyebutkan
+`GOOGLE_*` boleh dikosongkan kalau tidak memakai integrasi spreadsheet, tapi
+`docker-compose.prod.yml` meneruskannya sebagai **string kosong** — dan
+`z.string().min(1).optional()` menolak string kosong alih-alih memperlakukannya sebagai
+absen. Akibatnya kedua service restart tanpa henti. Ini bug yang sudah ada sejak Part 7
+dan tidak pernah muncul di development karena `.env` di sana selalu berisi nilai
+placeholder. Diperbaiki dengan helper `optionalText()` di kedua env schema yang
+menyeragamkan string kosong menjadi "tidak diisi", diterapkan ke seluruh variabel
+opsional bertipe teks — termasuk `QUEUE_DASHBOARD_PASSWORD` yang punya masalah sama
+lewat `.min(8)`.
+
+**`apps/dashboard/public` tidak ada.** Dockerfile awal menyalinnya mengikuti pola
+standar image Next.js, dan build-nya gagal. Barisnya dihapus dengan komentar yang
+menyebutkan satu-satunya berkas publik di project ini (`embed.js`) milik apps/embed.
+
+**Pencocokan cache aset embed meleset.** Pola `[0-9a-f]{8,}` tidak cocok dengan hash
+Vite yang beralfabet base64url (`index.1r8Y-HDe.js`), jadi aset ber-hash tidak pernah
+mendapat `Cache-Control: immutable` — kegagalan diam yang hanya terlihat kalau
+header-nya benar-benar diperiksa. Diganti mencocokkan folder `/assets/*`, yang memang
+seluruh isinya bernama dengan hash.
+
+**Pemeriksaan "nilai contoh" di `deploy.sh` ikut membaca komentar.** `grep 'ganti-dengan-'`
+menabrak baris petunjuk di kepala `.env.production` dan menolak deploy yang sebenarnya
+sudah terisi lengkap. Sekarang baris komentar dilewati lebih dulu.
+
+**Catatan untuk pemakaian berikutnya:**
+
+- **Sentry belum dipasang.** ARCHITECTURE.md menyebutnya untuk error tracking aplikasi.
+  Yang tersedia sekarang: log container (dibatasi 20 MB × 5), Netdata untuk resource,
+  dan Bull Board untuk job gagal. Menambahkannya berarti satu paket SDK di api, worker,
+  dan dashboard plus satu DSN di `.env.production`.
+- **Belum ada staging.** `deploy.sh` bekerja pada satu server. Untuk dua lingkungan,
+  yang paling sederhana adalah dua salinan repo dengan `.env.production` dan
+  `COMPOSE_PROJECT_NAME` berbeda di mesin yang berbeda.
+- **Rollback tidak mencakup migrasi.** Prisma tidak menjalankan migrasi mundur, jadi
+  kembali ke commit lama belum tentu cukup kalau rilis yang bermasalah membawa perubahan
+  skema. Karena itu SETUP_SERVER.md menyarankan menjalankan `backup.sh` sebelum deploy
+  yang membawa migrasi.
+- **Image tidak disimpan di registry.** Setiap server membangun sendiri dari source.
+  Untuk beberapa server, mendorong image ke registry (GHCR, atau registry sendiri) akan
+  jauh lebih hemat daripada membangun ulang di masing-masing.
+- `IMAGE_TAG` sudah ada di compose dan `.env.production.example`, tapi `deploy.sh`
+  belum memakainya untuk menyimpan image versi sebelumnya. Untuk rollback image tanpa
+  build ulang, isi `IMAGE_TAG` dengan nomor rilis setiap deploy.

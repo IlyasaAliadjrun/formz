@@ -5,6 +5,7 @@ sync ke Google Sheets, dan kirim notifikasi email otomatis.
 
 Referensi arsitektur & keputusan tech stack ada di [ARCHITECTURE.md](./ARCHITECTURE.md).
 Progres pengerjaan per part dicatat di [PROGRESS.md](./PROGRESS.md).
+Cara memasangnya di server sendiri ada di [SETUP_SERVER.md](./SETUP_SERVER.md).
 
 ---
 
@@ -22,9 +23,18 @@ formz/
 ├── packages/
 │   └── shared/       Tipe TypeScript & schema Zod yang dipakai bersama
 ├── docker/
-│   └── dev.Dockerfile
-├── docker-compose.yml
-└── .env.example
+│   ├── dev.Dockerfile        image runtime untuk development
+│   ├── prod.Dockerfile       image produksi (multi-stage, 5 target)
+│   ├── Caddyfile             reverse proxy 3 domain + HTTPS otomatis
+│   └── embed.Caddyfile       penyaji statis form renderer
+├── scripts/
+│   ├── backup.sh             pg_dump + MinIO + rclone, dijadwalkan cron
+│   └── rclone.conf.example   template kredensial storage offsite
+├── deploy.sh                 deploy manual via SSH
+├── docker-compose.yml        stack development
+├── docker-compose.prod.yml   stack produksi
+├── .env.example
+└── .env.production.example
 ```
 
 `@formz/shared` adalah satu-satunya sumber definisi field type, form schema, rule kondisi,
@@ -397,6 +407,109 @@ pnpm dev            # menjalankan keempat app paralel
 Catatan: `.env.example` mengisi `POSTGRES_HOST=postgres` dan `REDIS_HOST=redis` (nama service
 di jaringan Docker). Kalau app dijalankan langsung di host sementara database tetap di Docker,
 ganti keduanya jadi `localhost`.
+
+---
+
+## Deploy ke Produksi
+
+Panduan lengkap menyiapkan server Ubuntu 24.04 dari nol — user non-root, UFW,
+Fail2ban, SSH key-only, Docker, DNS, backup terjadwal, dan monitoring — ada di
+**[SETUP_SERVER.md](./SETUP_SERVER.md)**.
+
+Bagian ini hanya merangkum berkas dan perintah yang dipakai sesudah server siap.
+
+### Berkas produksi
+
+| Berkas                                                       | Isi                                                             |
+| ------------------------------------------------------------ | --------------------------------------------------------------- |
+| [docker-compose.prod.yml](./docker-compose.prod.yml)         | Stack produksi: image hasil build, tanpa bind mount source      |
+| [docker/prod.Dockerfile](./docker/prod.Dockerfile)           | Image multi-stage untuk api, worker, dashboard, embed, migrator |
+| [docker/Caddyfile](./docker/Caddyfile)                       | Reverse proxy tiga domain + HTTPS otomatis (Let's Encrypt)      |
+| [docker/embed.Caddyfile](./docker/embed.Caddyfile)           | Penyaji berkas statis form renderer di dalam container embed    |
+| [.env.production.example](./.env.production.example)         | Seluruh environment variable produksi, tanpa kredensial         |
+| [deploy.sh](./deploy.sh)                                     | Deploy manual lewat SSH                                         |
+| [scripts/backup.sh](./scripts/backup.sh)                     | pg_dump + arsip MinIO + unggah rclone, dijadwalkan cron         |
+| [scripts/rclone.conf.example](./scripts/rclone.conf.example) | Template konfigurasi storage offsite                            |
+
+### Menjalankan deploy
+
+```bash
+ssh formz@server
+cd ~/formz
+./deploy.sh
+```
+
+Urutan yang dijalankan `deploy.sh`:
+
+1. Memeriksa prasyarat — `.env.production` ada, izinnya rapat, tidak ada nilai
+   contoh yang tertinggal, dan seluruh variabel wajib compose terisi
+2. `git pull --ff-only` (berhenti kalau ada perubahan yang belum di-commit di server)
+3. `docker compose -f docker-compose.prod.yml build`
+4. Menaikkan Postgres & Redis, menunggu keduanya **healthy**
+5. Menjalankan migrasi + seed lewat container `migrator` sekali jalan
+6. Menaikkan seluruh service
+7. Memverifikasi `/health` dari dalam jaringan Docker, lalu membersihkan image lama
+
+Migrasi sengaja dijalankan **sebelum** container aplikasi naik, dan hasilnya
+ditunggu: kalau gagal, skrip berhenti dan versi lama tetap melayani.
+
+Argumen yang tersedia:
+
+```bash
+./deploy.sh --no-pull        # pakai kode yang sudah ada di server (rollback manual)
+./deploy.sh --no-build       # hanya migrasi + restart
+./deploy.sh --skip-migrate   # naikkan stack tanpa menyentuh skema database
+./deploy.sh --help
+```
+
+### Yang berbeda dari stack development
+
+|                  | Development                              | Produksi                                  |
+| ---------------- | ---------------------------------------- | ----------------------------------------- |
+| Sumber kode      | Bind mount + hot reload                  | Hasil build di dalam image                |
+| Port terbuka     | 3000, 4000, 5173, 5432, 6379, 9000, 9001 | Hanya 80 & 443 (Caddy)                    |
+| Database & Redis | Ter-publish ke host                      | Hanya jaringan Docker internal            |
+| HTTPS            | Tidak ada                                | Otomatis lewat Caddy + Let's Encrypt      |
+| Migrasi          | Ikut jalan tiap `docker compose up`      | Langkah tersendiri di `deploy.sh`         |
+| `restart`        | `unless-stopped`                         | `unless-stopped` + systemd unit           |
+| Log              | Tanpa batas                              | `json-file`, maks 20 MB × 5 per container |
+
+### Kenapa Caddy, bukan Nginx
+
+HTTPS-nya otomatis: Caddy menerbitkan dan memperpanjang sertifikat Let's Encrypt
+sendiri hanya dari nama domain yang ditulis di Caddyfile — tanpa certbot, tanpa
+cron perpanjangan, tanpa langkah bootstrap. Di server yang diurus sendiri,
+sertifikat kedaluwarsa karena timer perpanjangan yang diam-diam mati adalah salah
+satu penyebab downtime paling umum, dan itu justru kelas masalah yang paling
+tidak ingin ditanggung pemasang self-hosted.
+
+Nginx unggul kalau butuh kendali sangat rinci (cache berlapis, upstream hashing,
+modul pihak ketiga). Formz tidak butuh satu pun dari itu — yang dikerjakan
+konfigurasinya cuma meneruskan tiga nama domain ke tiga container.
+
+### Domain tertanam saat build
+
+`NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_EMBED_URL`, dan `VITE_API_URL` masuk ke
+bundle browser saat image dibangun, bukan dibaca ketika container start.
+Mengganti domain karena itu **wajib** diikuti `./deploy.sh` (yang membangun
+ulang), bukan sekadar mengubah `.env.production` lalu restart.
+
+### Backup
+
+`scripts/backup.sh` membuat `pg_dump` terkompresi + arsip volume MinIO,
+memverifikasi keduanya (uji gzip dan memastikan dump memuat tabel yang
+diharapkan), mengunggahnya lewat rclone, lalu membersihkan salinan lokal yang
+kedaluwarsa. Kredensial storage tidak pernah ada di dalam skripnya — semuanya di
+berkas konfigurasi rclone yang terpisah dan tidak ikut ter-commit.
+
+```bash
+./scripts/backup.sh                        # manual, aman dijalankan kapan saja
+15 2 * * * /home/formz/formz/scripts/backup.sh >> /var/log/formz-backup.log 2>&1
+```
+
+Cara menguji restore-nya ada di [SETUP_SERVER.md bagian 13](./SETUP_SERVER.md#13-uji-restore).
+Lakukan sekali saat setup dan ulangi berkala — backup yang belum pernah dicoba
+dipulihkan adalah asumsi, bukan cadangan.
 
 ---
 

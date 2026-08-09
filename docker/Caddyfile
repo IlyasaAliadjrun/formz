@@ -1,0 +1,120 @@
+# Reverse proxy + TLS untuk Formz.
+#
+# ## Kenapa Caddy, bukan Nginx
+#
+# Satu alasan yang menentukan: HTTPS-nya otomatis. Caddy menerbitkan dan
+# memperpanjang sertifikat Let's Encrypt sendiri hanya dari nama domain yang
+# ditulis di berkas ini — tanpa certbot, tanpa cron perpanjangan, tanpa langkah
+# "bootstrap" yang mengharuskan server sudah melayani HTTP dulu sebelum
+# sertifikatnya bisa diterbitkan. Di setup Nginx, sertifikat kedaluwarsa karena
+# timer perpanjangan yang diam-diam mati adalah salah satu penyebab downtime
+# paling umum di server yang diurus sendiri, dan itu justru kelas masalah yang
+# paling tidak ingin ditanggung pemasang self-hosted.
+#
+# Nginx unggul kalau butuh kendali sangat rinci (cache berlapis, upstream
+# hashing, modul pihak ketiga). Formz tidak butuh satu pun dari itu: yang
+# dikerjakan berkas ini cuma meneruskan tiga nama domain ke tiga container.
+# Kalau nanti memang perlu, menukarnya ke Nginx tidak menyentuh kode aplikasi
+# sama sekali.
+#
+# Semua nama domain dan email diambil dari environment variable (.env.production),
+# jadi tidak ada domain yang tertulis mati di berkas ini.
+{
+	# Email untuk pemberitahuan Let's Encrypt (sertifikat gagal diperpanjang, dll).
+	email {$ACME_EMAIL}
+
+	# Buka baris berikut untuk memakai staging Let's Encrypt saat uji coba DNS.
+	# Batas penerbitan sertifikat produksi cukup ketat, dan menabraknya berarti
+	# domain itu terkunci berjam-jam.
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+
+	servers {
+		# Header proxy yang ditulis Caddy (X-Forwarded-For dkk) baru boleh
+		# dipercaya API kalau TRUST_PROXY=true — lihat catatan di .env.production.example.
+		trusted_proxies static private_ranges
+	}
+}
+
+# ---------------------------------------------------------------------------
+# Potongan yang dipakai ketiga situs
+# ---------------------------------------------------------------------------
+(security_headers) {
+	header {
+		# HSTS: 1 tahun, termasuk subdomain. Baru dinyalakan setelah yakin
+		# semua subdomain benar-benar melayani HTTPS — mencabutnya butuh waktu
+		# selama browser masih mengingat nilainya.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		# Jangan mengumumkan versi server ke pemindai otomatis.
+		-Server
+	}
+}
+
+(logging) {
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 20MiB
+			roll_keep 10
+			roll_keep_for 720h
+		}
+		format json
+	}
+}
+
+# ---------------------------------------------------------------------------
+# app.domain — dashboard admin (Next.js)
+# ---------------------------------------------------------------------------
+{$APP_DOMAIN} {
+	import security_headers
+	import logging
+
+	# Dashboard tidak pernah boleh di-iframe: satu-satunya alasan orang
+	# memasangnya di dalam frame situs lain adalah clickjacking.
+	header {
+		X-Frame-Options DENY
+	}
+
+	encode gzip zstd
+
+	# Caddy sudah menulis X-Forwarded-For, -Proto, dan -Host secara bawaan,
+	# jadi tidak ada header_up yang perlu ditambahkan di sini.
+	reverse_proxy dashboard:3000
+}
+
+# ---------------------------------------------------------------------------
+# api.domain — backend (NestJS) + Bull Board
+# ---------------------------------------------------------------------------
+{$API_DOMAIN} {
+	import security_headers
+	import logging
+
+	encode gzip zstd
+
+	# CORS **tidak** diatur di sini. API memutuskannya sendiri per request:
+	# satu origin tetap untuk dashboard, dan whitelist domain per form untuk
+	# endpoint publik. Menambahkan header CORS di proxy akan menghasilkan header
+	# ganda dan justru membatalkan pembatasan per form itu.
+	reverse_proxy api:4000 {
+		# Ekspor Excel form besar bisa memakan waktu; bawaan Caddy tidak
+		# memutusnya, tapi ditulis eksplisit supaya niatnya terbaca.
+		transport http {
+			read_timeout 120s
+			write_timeout 120s
+		}
+	}
+}
+
+# ---------------------------------------------------------------------------
+# embed.domain — form renderer (statis)
+# ---------------------------------------------------------------------------
+{$EMBED_DOMAIN} {
+	import security_headers
+	import logging
+
+	encode gzip zstd
+
+	# Container embed sudah menyajikan berkas statisnya sendiri lengkap dengan
+	# aturan cache dan fallback SPA (docker/embed.Caddyfile).
+	reverse_proxy embed:5173
+}
