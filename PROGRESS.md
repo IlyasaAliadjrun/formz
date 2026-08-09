@@ -3,9 +3,12 @@
 Catatan progres lintas sesi. Setiap part yang selesai dicentang di sini, lengkap dengan
 tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tanpa menebak-nebak.
 
-**Status saat ini:** Part 7 selesai, plus UI RBAC (manajemen user, role & permission) yang
-di daftar ini tercatat sebagai bagian Part 9. Yang tersisa di Part 8: status delivered/bounced,
-template email kustom, dan batas laju pengiriman.
+**Status saat ini:** Part 9 (reporting & export) selesai — materialized view, refresh
+berjadwal lewat queue, halaman `/forms/:id/reports`, dan ekspor Excel. Dua item Part 9
+sengaja **tidak** ikut dikerjakan karena bukan bagian dari permintaan reporting: hapus/arsip
+submission dan upload berkas ke MinIO; keduanya beserta pencarian teks bebas dipindah ke
+Part 10. Yang tersisa di Part 8: status delivered/bounced, template email kustom, dan batas
+laju pengiriman.
 
 | Part | Judul                                    | Status      |
 | ---- | ---------------------------------------- | ----------- |
@@ -18,7 +21,7 @@ template email kustom, dan batas laju pengiriman.
 | 6    | Submission management                    | ✅ Selesai  |
 | 7    | Integrasi Google Sheets (queue + worker) | ✅ Selesai  |
 | 8    | Workflow notifikasi email                | 🟡 Sebagian |
-| 9    | Reporting & export                       | 🟡 Sebagian |
+| 9    | Reporting & export                       | ✅ Selesai  |
 | 10   | Deployment self-hosted & operasional     | ⬜ Belum    |
 
 ---
@@ -602,7 +605,7 @@ _Selesai: 9 Agustus 2026_
 - [x] Tombol ekspor Excel & CSV di halaman daftar
 - [x] Navigasi tab Builder / Submission / Embed di ketiga halaman form
 - [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5) → Part 7
-- [ ] Hapus/arsip submission sesuai permission → Part 9
+- [ ] Hapus/arsip submission sesuai permission → Part 9, lalu Part 10
 
 **Terverifikasi (Playwright, 37 pemeriksaan lolos, 0 error konsol):**
 
@@ -687,7 +690,8 @@ milik Prisma pada kolom JSONB, tapi tanpa `path` filter itu tidak mencocokkan
 apa pun — dan ketahuan justru karena hasilnya selalu nol. Melakukannya dengan benar
 butuh `answers::text ILIKE` lewat SQL mentah plus index trigram supaya tidak
 memindai seluruh tabel; itu pekerjaan yang lebih pas digabung dengan agregasi di
-Part 9. Yang tersedia sekarang filter form dan rentang tanggal, keduanya memakai
+Part 9 — tapi ternyata tidak: agregasinya selesai tanpa menyentuh pencarian, dan
+item itu berpindah lagi ke Part 10. Yang tersedia sekarang filter form dan rentang tanggal, keduanya memakai
 index yang sudah ada.
 
 **TanStack Table 9, bukan 8.** Versi 9 memakai `useTable` + `tableFeatures()`
@@ -708,7 +712,7 @@ memakai fitur bawaannya karena datanya sudah dipotong server.
   integrasi yang menulis ke tab berbeda dalam satu spreadsheet.
 - ~~Penerima dinamis belum ikut dihitung di `expectedRecipients`~~ → selesai di Part 7.
 - ~~Belum ada aksi retry manual dari dashboard~~ → selesai di Part 7. Hapus/arsip
-  submission tetap dipindah ke Part 9.
+  submission tetap dipindah ke Part 9, lalu ke Part 10.
 - Belum ada sort per kolom; urutan tetap terbaru dulu.
 
 ## ✅ Part 7 — Integrasi Google Sheets & notifikasi email (queue + worker)
@@ -731,7 +735,7 @@ _Selesai: 9 Agustus 2026_
 - [x] Aksi retry manual dari halaman detail submission
 - [x] Bull Board di `/queues` (HTTP Basic auth) + ringkasan antrean di dashboard
 - [x] Migrasi `notification_rules`: kolom `name`, `subject`, `condition`, `recipient_field_ids`
-- [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5 & 6) → **dipindah ke Part 9**,
+- [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5 & 6) → Part 9, lalu **Part 10**,
       lihat catatan di bawah
 
 **Terverifikasi (Playwright, 26 pemeriksaan lolos):**
@@ -914,7 +918,8 @@ job, jadi daftar di layar tidak bisa berbeda dari daftar yang benar-benar dikiri
   jalur antrean serta pencatatan log. Yang belum: respons `values.append` dan
   `values.get` dari Google. Begitu `GOOGLE_*` diisi kredensial betulan, tombol
   **Test Kirim** di `/forms/:id/integrations` adalah cara tercepat memastikannya.
-- **Upload file ke MinIO dipindah ke Part 9.** Item ini sudah berpindah dua kali
+- **Upload file ke MinIO dipindah ke Part 9** — dan dari sana ke Part 10, karena Part 9
+  ternyata murni soal laporan. Item ini sudah berpindah dua kali
   (Part 5 → 6 → 7) dan tidak ada hubungannya dengan queue maupun integrasi; menaruhnya
   bersama pekerjaan storage di Part 9 lebih masuk akal daripada menempelkannya ke
   part mana pun yang kebetulan sedang dikerjakan. Setelah itu, menyalakan validasinya
@@ -1059,22 +1064,206 @@ sesi yang memicu redirect.
 - Halaman `/settings` masih memuat dua tab. Kalau nanti bertambah (misal
   pengaturan SMTP lewat UI), sub-navigasinya sudah siap di `settings/layout.tsx`.
 
-## 🟡 Part 9 — Reporting & export
+## ✅ Part 9 — Reporting & export
+
+_Selesai: 9 Agustus 2026_
 
 - [x] ~~Manajemen user & role di dashboard (dipindah dari Part 4)~~ → selesai,
       lihat bagian "UI RBAC" di atas
-- [ ] Hapus/arsip submission sesuai permission (dipindah dari Part 6)
+- [x] Empat materialized view PostgreSQL untuk agregasi berat
+      (migrasi `20260809160000_reporting_views`)
+- [x] Jadwal refresh lewat job scheduler BullMQ (`REPORT_REFRESH_CRON`, bawaan tiap
+      15 menit), dikerjakan worker di queue baru `report-refresh`
+- [x] `GET /admin/reports/overview?form_id=` — total, tren per hari/minggu,
+      status integrasi, distribusi jawaban, keterangan kesegaran data (`report.view`)
+- [x] `GET /admin/reports/export?form_id=` — Excel empat sheet (ExcelJS)
+- [x] `POST /admin/reports/refresh` — hitung ulang di luar jadwal, digabung kalau
+      sudah ada yang antre
+- [x] Halaman `/forms/:id/reports` — chart tren (Recharts), chart distribusi per field
+      pilihan, status integrasi sebagai progress bar, tombol ekspor
+- [x] Filter periode & pengelompokan tren harian/mingguan
+- [x] Akses report dibatasi RBAC: tab disembunyikan tanpa `report.view`, endpoint 403
+- [x] `report_refresh_state` — kapan tiap view terakhir dihitung, dibaca halaman laporan
+- [x] 12 test perhitungan di `@formz/shared` + 14 test akses di
+      `apps/api/test/reports-access.spec.ts`
+- [ ] Hapus/arsip submission sesuai permission (dipindah dari Part 6) → **Part 10**
 - [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5, 6, & 7),
-      lalu nyalakan validasi `file_upload` di `answer-validation.ts`
-- [ ] Pencarian teks bebas pada jawaban (butuh index trigram, lihat catatan Part 6)
-- [ ] Query agregasi + materialized view untuk report berat
-- [ ] Jadwal refresh materialized view
-- [ ] Chart ringkasan submission (Recharts)
-- [ ] Filter periode & per form
-- [ ] Export .xlsx (ExcelJS) dan .csv
-- [ ] Batasi akses report lewat RBAC
+      lalu nyalakan validasi `file_upload` di `answer-validation.ts` → **Part 10**
+- [ ] Pencarian teks bebas pada jawaban (butuh index trigram) → **Part 10**
+
+Tiga item terakhir memang tercatat di Part 9 sejak awal, tapi tidak satu pun berhubungan
+dengan reporting — hapus submission, unggah berkas, dan pencarian teks adalah pekerjaan
+submission dan storage yang kebetulan menumpang di nomor yang sama. Dikerjakan terpisah,
+bukan diselipkan ke pekerjaan laporan.
+
+**Terverifikasi (Playwright, 30 pemeriksaan lolos, 0 error konsol):**
+
+- Tab **Laporan** muncul di navigasi form dan membuka `/forms/:id/reports`
+- Chart tren tergambar; ganti ke "Per minggu" mengubah judul dan pengelompokannya
+- Empat chart distribusi tergambar dengan **label opsi** ("Kelas Lanjutan"), bukan
+  id opsi mentah, plus jumlah penjawab per field
+- Checkbox tampil sebagai Ya/Tidak dengan penyebut seluruh submission
+- Status integrasi menampilkan 83,3% (5 berhasil, 1 gagal) dan 33,3% (2 berhasil,
+  2 gagal, 2 menunggu) sesuai isi `submission_integration_logs`
+- Submission baru lewat endpoint publik memunculkan peringatan "1 submission masuk
+  setelah perhitungan terakhir", angka di layar **belum** berubah, lalu bertambah satu
+  setelah **Hitung ulang sekarang** ditekan
+- Filter tanggal mempersempit hasil, "Hapus filter" mengembalikannya
+- Tombol ekspor menghasilkan unduhan `laporan-<judul>-<tanggal>.xlsx`
+- Form tanpa submission menampilkan keadaan kosong di ketiga bagian, bukan error
+
+**Terverifikasi (Playwright, 4 pemeriksaan, user tanpa `report.view`):**
+
+- Tab **Laporan** tidak dirender sama sekali (hanya Builder, Submission, Embed)
+- Membuka `/forms/:id/reports` lewat URL langsung menampilkan penolakan yang
+  menyebut `report.view`
+
+**Terverifikasi (curl + database):**
+
+- Isi berkas Excel dibaca ulang: empat sheet (Ringkasan, Tren, Status Integrasi,
+  Distribusi Jawaban) berisi angka yang sama persis dengan yang tampil di layar
+- Tren mingguan menempatkan bucket di hari Senin (`2026-08-03` untuk data 6–9 Agustus)
+- Rentang terbalik → 400, form tidak ada → 404, tanpa token → 401
+- `from=2026-08-01T13:45:00Z` dipangkas jadi `2026-08-01` — agregasinya per hari,
+  jadi jamnya tidak bisa ditepati dan itu dilakukan terang-terangan
+- `report_refresh_state` terisi keempat view dengan durasi dan jumlah barisnya
+
+`pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test` (224 test), `format:check`,
+dan `next build` (13 route) semuanya bersih.
+
+### Keputusan desain
+
+**Empat materialized view, bukan satu.** Godaannya menaruh semuanya dalam satu view
+lebar, tapi keempatnya punya granularitas berbeda — per (form, hari), per (form, hari,
+tipe, status), per (form, hari, field), dan per (form, hari, field, opsi). Menggabungkannya
+berarti mengulang angka tingkat atas di setiap baris tingkat bawah, dan siapa pun yang
+menjumlahkannya lintas hari akan menghitung ganda tanpa sadar. Yang paling rawan justru
+cacah penjawab per field: kalau ditempelkan ke baris opsi, `sum()` biasa akan
+menghitungnya sekali per opsi. Dipisah, semua penjumlahan jujur apa adanya.
+
+**Semuanya di-bucket per hari, tidak ada view mingguan.** Tren mingguan disusun dari
+view harian dengan `date_trunc('week', bucket)`. View kedua yang isinya data sama dengan
+pengelompokan berbeda hanya menambah satu hal lagi yang bisa menyimpang, dan biaya
+`date_trunc` di atas beberapa ratus baris hasil agregasi tidak terukur.
+
+**Filter periode ikut ke distribusi jawaban, bukan hanya ke tren.** Karena itu ketiga
+view jawaban ikut ber-bucket harian meski distribusinya sendiri tidak butuh dimensi waktu.
+Tanpa itu, memilih rentang tanggal akan mempersempit tren sementara chart distribusi diam
+saja memakai seluruh data — satu halaman yang menjawab dua pertanyaan berbeda tanpa
+memberi tahu pembacanya.
+
+**Bucket dihitung `AT TIME ZONE 'UTC'`, bukan `date_trunc` polos.** `date_trunc` pada
+`timestamptz` mengikuti zona waktu sesi, jadi hasil refresh akan berbeda tergantung
+siapa yang menjalankannya. Ini persis bug yang sudah menggigit sekali di Part 7, dan
+tidak perlu terulang lewat pintu yang berbeda.
+
+**Refresh pakai `CONCURRENTLY`.** Tanpanya, `REFRESH` memegang ACCESS EXCLUSIVE dan
+halaman laporan yang kebetulan dibuka saat itu menggantung sampai perhitungan selesai.
+Harganya setiap view **wajib** punya unique index — itulah kenapa keempatnya punya
+`CREATE UNIQUE INDEX` tepat di bawah definisinya, bukan sekadar index biasa.
+
+**Jadwalnya job scheduler BullMQ, bukan cron sistem atau `@nestjs/schedule`.**
+Tiga alasan: jadwalnya tersimpan di Redis sehingga beberapa instance API tidak
+menghasilkan job kembar, pekerjaan beratnya jatuh ke worker (tempat pekerjaan berat
+memang berada), dan riwayat tiap penjalanannya ikut terlihat di Bull Board bersama job
+sync dan email. Sifatnya upsert, jadi mengganti `REPORT_REFRESH_CRON` lalu restart sudah
+cukup — tidak ada jadwal lama yang tertinggal.
+
+**Kesegaran data ditampilkan, bukan disembunyikan.** Laporan dari materialized view
+selalu tertinggal. Yang tidak boleh terjadi adalah orang membaca angka nol pada form yang
+baru saja menerima kiriman lalu menyimpulkan formnya rusak. Karena itu respons ikut
+membawa waktu perhitungan terakhir dan **berapa submission yang masuk sesudahnya**, dan
+halamannya menampilkan tiga keadaan berbeda: refresh gagal (merah), ada yang belum
+terhitung (kuning), semuanya mutakhir (abu-abu). Yang dilaporkan waktu refresh **paling
+tua** di antara keempat view — satu view yang tertinggal sudah cukup membuat sebagian
+angka tidak sinkron dengan yang lain.
+
+**Tombol "Hitung ulang sekarang" boleh ditekan siapa pun yang bisa membaca laporan.**
+Yang dilakukannya cuma mempercepat perhitungan yang toh akan berjalan sendiri, dan
+penyalahgunaannya terbatas dengan sendirinya: permintaan yang datang selagi refresh
+sebelumnya masih antre digabung ke job yang sama lewat `jobId` tetap. Yang perlu
+diperhatikan justru sebaliknya — job yang **sudah selesai** tetap tersimpan untuk riwayat
+Bull Board, dan selama ia ada `add` dengan id yang sama tidak melakukan apa-apa. Bangkainya
+karena itu dibersihkan lebih dulu, sama seperti pada retry manual di Part 7.
+
+**Ekspor laporan memakai `report.view`, bukan permission ekspor terpisah.**
+`/admin/submissions/export` sengaja dipisah dari `submission.view` di Part 6 karena
+mengunduh seluruh jawaban jadi satu berkas memang kemampuan yang berbeda. Di sini bedanya
+tidak ada: berkas laporan hanya berisi angka agregat yang sudah tampil utuh di layar bagi
+pemegang `report.view`. Permission terpisah untuk mengunduh angka yang sama hanya menambah
+centang yang tidak membatasi apa pun.
+
+**Ekspor laporan hanya .xlsx, tanpa CSV.** Laporan terdiri dari empat bagian yang
+bentuknya berbeda; memaksanya jadi satu berkas CSV berarti memilih salah satunya dan
+membuang tiga sisanya. Ekspor baris mentah per submission — yang memang cocok untuk CSV —
+sudah ada di `/admin/submissions/export`.
+
+**Penyebut persentase adalah penjawab field, bukan total submission.** "60% memilih
+Implementasi" berarti 60% dari yang **mengisi** field itu; field yang dilewati separuh
+pengisi form tidak boleh membuat semua opsinya terlihat kecil. Pengecualiannya checkbox:
+renderer membuang nilai `false` dari payload, jadi kotak yang tidak dicentang tidak
+meninggalkan jejak apa pun di `answers` dan "penjawab" untuk field itu selalu sama dengan
+"yang mencentang". Penyebutnya karena itu seluruh submission, dan "Tidak" adalah sisanya.
+
+**Label opsi diambil dari versi form yang berlaku, id opsi lama tetap ditampilkan.**
+Aturannya sama dengan kolom di daftar submission. Opsi yang sudah dihapus dari schema
+tetap muncul dengan id mentahnya sebagai label, ditandai `orphan` dan digambar abu-abu —
+membuangnya berarti jumlah di chart tidak lagi cocok dengan jumlah submission, dan tidak
+ada yang tahu ke mana selisihnya pergi.
+
+**`buildFieldDistribution` ditaruh di `@formz/shared`, bukan di apps/api.** Fungsinya
+memang baru dipakai satu tempat, tapi isinya dua aturan yang gampang salah (penyebut
+checkbox dan opsi orphan) dan tidak butuh database sama sekali — jadi bisa diuji langsung
+sebagai fungsi murni alih-alih lewat query.
+
+**Nama materialized view disisipkan ke SQL, dan itu disengaja.** `REFRESH` tidak menerima
+nama relasi sebagai parameter terikat. Yang disisipkan wajib berasal dari `REPORT_VIEWS`
+di `@formz/shared` — konstanta `as const` yang tipenya (`ReportViewName`) membuat aturan
+itu ditegakkan compiler, bukan sekadar dijanjikan komentar; ditambah satu pemeriksaan
+runtime kalau-kalau ada yang menembusnya lewat cast.
+
+**Kegagalan satu view tidak menghentikan yang lain.** Laporan yang tiga per empat
+bagiannya segar lebih berguna daripada laporan yang seluruhnya basi karena satu view
+bermasalah. Job-nya tetap ditandai gagal setelah semuanya dicoba, dan bagian yang gagal
+terlihat di layar lewat `report_refresh_state.error_message`.
+
+**`common/xlsx.ts` dipakai bersama ekspor submission.** Aturan kecil seperti "nama sheet
+Excel maksimal 31 karakter" dan "lebar kolom dibatasi 50" sekarang hanya ditulis sekali.
+Sebelumnya semuanya ada di `submission-export.service.ts`; menyalinnya untuk ekspor laporan
+berarti yang kedua pasti tertinggal saat yang pertama diperbaiki.
+
+**Catatan untuk part berikutnya:**
+
+- **Materialized view tidak dikenal Prisma.** `prisma migrate dev` (yang membandingkan
+  schema dengan isi database) akan menganggapnya drift dan menawarkan reset. Yang dipakai
+  compose adalah `migrate deploy`, yang tidak memeriksa drift, jadi alur normal aman —
+  tapi kalau nanti perlu `migrate dev`, buat migrasinya dengan `--create-only` lalu
+  tempelkan SQL view-nya sendiri, seperti yang dilakukan migrasi ini.
+- **Cacah di-cast ke `int`, bukan `bigint`.** Melewati 2,1 miliar baris agregasi per form
+  akan meluap. Itu jauh di luar jangkauan yang masuk akal untuk satu form, dan `bigint`
+  akan memaksa konversi `BigInt` di setiap pemanggil karena JSON tidak bisa membawanya.
+- **Refresh selalu menghitung ulang seluruh tabel `submissions`.** Untuk puluhan ribu
+  submission ini beberapa ratus milidetik; untuk jutaan, perlu refresh inkremental
+  (view yang hanya menghitung hari-hari terakhir lalu digabung dengan riwayat beku).
+  Angka durasinya sudah dicatat di `report_refresh_state.duration_ms`, jadi kapan itu
+  mulai jadi masalah akan terlihat sendiri.
+- Laporan masih **per form**. Ringkasan lintas form (mana yang paling ramai bulan ini)
+  tinggal menghapus `form_id` dari klausa WHERE — view-nya sudah dikelompokkan per form.
+- Belum ada distribusi untuk field angka (histogram) maupun tanggal. Keduanya butuh
+  bucketing yang berbeda dari cacah per nilai, dan `report_answer_option_daily` sengaja
+  menyaring tipe selain string & boolean supaya tidak membesar oleh nilai yang sebarannya
+  tak terbatas.
+- Tren dan filter memakai **tanggal UTC**. Untuk pemakaian lintas zona waktu, bucket-nya
+  perlu dihitung ulang per zona — sama seperti catatan filter tanggal di Part 6.
 
 ## ⬜ Part 10 — Deployment self-hosted & operasional
+
+Ditambah tiga item yang pindah dari Part 9 karena bukan bagian dari pekerjaan reporting:
+
+- [ ] Hapus/arsip submission sesuai permission (dipindah dari Part 6 & 9)
+- [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5, 6, 7, & 9),
+      lalu nyalakan validasi `file_upload` di `answer-validation.ts`
+- [ ] Pencarian teks bebas pada jawaban (butuh index trigram, lihat catatan Part 6)
 
 - [ ] Dockerfile produksi (multi-stage) untuk api, worker, dashboard, embed
 - [ ] `docker-compose.prod.yml` + reverse proxy Caddy/Nginx dengan auto-HTTPS

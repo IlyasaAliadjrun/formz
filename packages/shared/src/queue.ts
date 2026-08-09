@@ -7,6 +7,7 @@ import { z } from 'zod';
 export const QUEUE_NAMES = {
   SHEET_SYNC: 'sheet-sync',
   EMAIL_NOTIFICATION: 'email-notification',
+  REPORT_REFRESH: 'report-refresh',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -14,6 +15,7 @@ export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 export const JOB_NAMES = {
   SYNC_TO_SHEET: 'sync-to-sheet',
   SEND_NOTIFICATION: 'send-notification',
+  REFRESH_REPORTS: 'refresh-reports',
 } as const;
 
 export type JobName = (typeof JOB_NAMES)[keyof typeof JOB_NAMES];
@@ -86,4 +88,45 @@ export const TEST_JOB_OPTIONS = {
   attempts: 1,
   removeOnComplete: { age: 300 },
   removeOnFail: { age: 300 },
+} as const;
+
+// ---------------------------------------------------------------------------
+// Refresh materialized view laporan
+// ---------------------------------------------------------------------------
+
+/**
+ * `scheduled` datang dari job scheduler BullMQ (lihat `REPORT_REFRESH_SCHEDULER_ID`),
+ * `manual` dari tombol "Perbarui data" di halaman laporan. Bedanya hanya untuk
+ * dibaca di log dan Bull Board — pekerjaannya sama persis.
+ */
+export const reportRefreshJobSchema = z.object({
+  reason: z.enum(['scheduled', 'manual']).prefault('scheduled'),
+});
+export type ReportRefreshJob = z.infer<typeof reportRefreshJobSchema>;
+
+export interface ReportRefreshResult {
+  views: Array<{ name: string; durationMs: number; rowCount: number }>;
+  totalMs: number;
+}
+
+/** Id job scheduler; sama untuk semua instance API supaya cron-nya tidak dobel. */
+export const REPORT_REFRESH_SCHEDULER_ID = 'report-refresh-schedule';
+
+/**
+ * Id tetap untuk refresh manual. Selama job dengan id ini masih menunggu atau
+ * berjalan, klik berikutnya diabaikan BullMQ — persis perilaku debounce yang
+ * diinginkan, tanpa perlu penghitung waktu sendiri di mana pun.
+ */
+export const REPORT_REFRESH_MANUAL_JOB_ID = 'report-refresh-manual';
+
+/**
+ * Refresh berikutnya toh akan menghitung ulang semuanya dari awal, jadi
+ * mengulang yang gagal berkali-kali tidak ada gunanya. Riwayatnya disimpan
+ * sebentar supaya durasi tiap refresh terlihat di Bull Board.
+ */
+export const REPORT_REFRESH_JOB_OPTIONS = {
+  attempts: 2,
+  backoff: { type: 'exponential' as const, delay: 30_000 },
+  removeOnComplete: { count: 50 },
+  removeOnFail: { age: 7 * 24 * 3600 },
 } as const;

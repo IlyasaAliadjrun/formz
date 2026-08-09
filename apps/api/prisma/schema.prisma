@@ -308,3 +308,28 @@ model NotificationRule {
   @@index([formId, isActive])
   @@map("notification_rules")
 }
+
+// ---------------------------------------------------------------------------
+// Reporting
+// ---------------------------------------------------------------------------
+
+/// Kapan tiap materialized view laporan terakhir dihitung ulang.
+///
+/// View-nya sendiri (`report_submission_daily` dkk) tidak bisa dinyatakan di
+/// schema Prisma, jadi dibuat lewat SQL di migrasi `20260809160000_reporting_views`
+/// dan dibaca dengan `$queryRaw`. Tabel ini satu-satunya bagian reporting yang
+/// dikenal Prisma — isinya ditulis worker seusai refresh dan dibaca API untuk
+/// memberitahu pembaca laporan datanya per kapan.
+model ReportRefreshState {
+  viewName String @id @map("view_name")
+
+  /// Hanya diperbarui saat refresh berhasil.
+  refreshedAt  DateTime? @map("refreshed_at") @db.Timestamptz(3)
+  durationMs   Int?      @map("duration_ms")
+  rowCount     Int?      @map("row_count")
+  errorMessage String?   @map("error_message")
+
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  @@map("report_refresh_state")
+}

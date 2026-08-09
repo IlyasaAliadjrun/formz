@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { PermissionKey } from '@formz/shared';
-import { Code2, Inbox, PencilRuler, Workflow } from 'lucide-react';
+import { BarChart3, Code2, Inbox, PencilRuler, Workflow } from 'lucide-react';
 import { useHasPermission } from '@/lib/hooks/use-auth';
 import { cn } from '@/lib/utils';
 
@@ -26,6 +26,7 @@ const TABS: Array<{
 }> = [
   { segment: 'edit', label: 'Builder', Icon: PencilRuler, permission: 'form.view' },
   { segment: 'submissions', label: 'Submission', Icon: Inbox, permission: 'submission.view' },
+  { segment: 'reports', label: 'Laporan', Icon: BarChart3, permission: 'report.view' },
   { segment: 'integrations', label: 'Integrasi', Icon: Workflow, permission: 'integration.manage' },
   { segment: 'embed', label: 'Embed', Icon: Code2, permission: 'form.view' },
 ];

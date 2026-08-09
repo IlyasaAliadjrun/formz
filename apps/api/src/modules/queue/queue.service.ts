@@ -9,6 +9,8 @@ import {
   DEFAULT_JOB_OPTIONS,
   JOB_NAMES,
   QUEUE_NAMES,
+  REPORT_REFRESH_JOB_OPTIONS,
+  REPORT_REFRESH_MANUAL_JOB_ID,
   TEST_JOB_OPTIONS,
   emailNotificationJobId,
   sheetSyncJobId,
@@ -22,6 +24,7 @@ import { Queue, QueueEvents, type Job } from 'bullmq';
 import {
   EMAIL_NOTIFICATION_QUEUE,
   EMAIL_NOTIFICATION_QUEUE_EVENTS,
+  REPORT_REFRESH_QUEUE,
   SHEET_SYNC_QUEUE,
   SHEET_SYNC_QUEUE_EVENTS,
 } from './queue.constants';
@@ -49,6 +52,7 @@ export class QueueService {
   constructor(
     @Inject(SHEET_SYNC_QUEUE) private readonly sheetQueue: Queue,
     @Inject(EMAIL_NOTIFICATION_QUEUE) private readonly emailQueue: Queue,
+    @Inject(REPORT_REFRESH_QUEUE) private readonly reportQueue: Queue,
     @Inject(SHEET_SYNC_QUEUE_EVENTS) private readonly sheetEvents: QueueEvents,
     @Inject(EMAIL_NOTIFICATION_QUEUE_EVENTS) private readonly emailEvents: QueueEvents,
   ) {}
@@ -70,6 +74,40 @@ export class QueueService {
       ...DEFAULT_JOB_OPTIONS,
       jobId,
     });
+  }
+
+  /**
+   * Meminta refresh materialized view laporan di luar jadwal.
+   *
+   * `jobId` tetap berfungsi sebagai peredam: selama job dengan id ini masih
+   * menunggu atau berjalan, permintaan berikutnya diabaikan BullMQ. Jadi
+   * menekan tombol "Perbarui data" sepuluh kali beruntun tetap menghasilkan
+   * satu kali agregasi ulang, tanpa penghitung waktu tambahan di mana pun.
+   *
+   * Mengembalikan false kalau permintaannya digabung ke job yang sudah antre.
+   */
+  async requestReportRefresh(): Promise<boolean> {
+    const existing = await this.reportQueue.getJob(REPORT_REFRESH_MANUAL_JOB_ID);
+
+    if (existing) {
+      const state = await existing.getState();
+
+      // Masih akan dikerjakan — permintaan ini cukup menumpang ke sana.
+      if (state === 'waiting' || state === 'active' || state === 'delayed') return false;
+
+      // Sisa job yang sudah selesai tetap tersimpan (removeOnComplete menahan
+      // riwayatnya untuk Bull Board), dan selama ia ada, `add` dengan id yang
+      // sama tidak melakukan apa-apa. Jadi bangkainya dibersihkan dulu.
+      await existing.remove().catch(() => undefined);
+    }
+
+    await this.reportQueue.add(
+      JOB_NAMES.REFRESH_REPORTS,
+      { reason: 'manual' },
+      { ...REPORT_REFRESH_JOB_OPTIONS, jobId: REPORT_REFRESH_MANUAL_JOB_ID },
+    );
+
+    return true;
   }
 
   /**
@@ -145,6 +183,7 @@ export class QueueService {
     return Promise.all([
       this.countsOf(QUEUE_NAMES.SHEET_SYNC),
       this.countsOf(QUEUE_NAMES.EMAIL_NOTIFICATION),
+      this.countsOf(QUEUE_NAMES.REPORT_REFRESH),
     ]);
   }
 
@@ -168,7 +207,10 @@ export class QueueService {
   }
 
   private queueOf(name: QueueName): Queue {
-    return name === QUEUE_NAMES.SHEET_SYNC ? this.sheetQueue : this.emailQueue;
+    if (name === QUEUE_NAMES.SHEET_SYNC) return this.sheetQueue;
+    if (name === QUEUE_NAMES.REPORT_REFRESH) return this.reportQueue;
+
+    return this.emailQueue;
   }
 }
 

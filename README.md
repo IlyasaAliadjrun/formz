@@ -174,6 +174,7 @@ Buka http://localhost:3000 lalu login dengan `ADMIN_EMAIL` + `ADMIN_PASSWORD` da
 | `/forms/:id/edit`                    | Form builder tiga panel: field, preview, properti          |
 | `/forms/:id/submissions`             | Tabel jawaban, filter tanggal, ekspor Excel/CSV            |
 | `/forms/:id/submissions/:submission` | Detail jawaban per field + status integrasi per submission |
+| `/forms/:id/reports`                 | Tren, distribusi jawaban, status integrasi, ekspor Excel   |
 | `/forms/:id/integrations`            | Target Google Sheets, aturan notifikasi email, uji coba    |
 | `/forms/:id/embed`                   | formKey, snippet iframe & script tag, whitelist domain     |
 | `/settings/users`                    | Daftar user, tambah/ubah/hapus, penetapan role             |
@@ -328,6 +329,39 @@ Job yang gagal bisa dijalankan ulang dari tombol **Jalankan ulang** di halaman d
 submission. Aman ditekan berapa kali pun: target yang catatannya sudah berhasil
 dilewati, jadi tidak ada baris dobel di spreadsheet atau email terkirim dua kali.
 
+### Laporan
+
+Tiap form punya halaman laporan di `/forms/:id/reports` (permission `report.view`):
+tren submission per hari/minggu, distribusi jawaban tiap field bertipe pilihan,
+persentase keberhasilan sync spreadsheet & notifikasi email, dan tombol ekspor
+ke Excel.
+
+Angkanya **tidak** dihitung ulang setiap halaman dibuka. Menghitung sebaran
+jawaban berarti membongkar JSONB seluruh submission, jadi hasilnya disimpan di
+empat materialized view PostgreSQL yang di-refresh berkala:
+
+| View                         | Isi                                        |
+| ---------------------------- | ------------------------------------------ |
+| `report_submission_daily`    | Jumlah submission per form per hari        |
+| `report_integration_daily`   | Status sync & email per form per hari      |
+| `report_answer_field_daily`  | Jumlah penjawab per field per hari         |
+| `report_answer_option_daily` | Jumlah pemilih per opsi per field per hari |
+
+Jadwal refresh-nya diatur `REPORT_REFRESH_CRON` (bawaan `*/15 * * * *`). Job-nya
+didaftarkan API sebagai job scheduler BullMQ dan dikerjakan worker, jadi tidak ada
+crontab sistem yang perlu diurus terpisah dan jadwalnya ikut terlihat di Bull Board
+bersama antrean lain.
+
+Karena itu laporan selalu tertinggal sampai refresh berikutnya. Halamannya
+mengatakan itu apa adanya — ada keterangan kapan angkanya dihitung, berapa
+submission yang masuk sesudahnya dan belum terhitung, plus tombol **Hitung ulang
+sekarang** untuk tidak perlu menunggu jadwal.
+
+```bash
+# Memaksa hitung ulang dari luar dashboard
+curl -X POST http://localhost:4000/admin/reports/refresh -H "Authorization: Bearer $TOKEN"
+```
+
 ### Database (Prisma)
 
 ```bash
@@ -347,7 +381,7 @@ docker compose run --rm deps pnpm --filter @formz/api db:migrate:reset
 docker compose run --rm deps pnpm --filter @formz/api db:seed
 ```
 
-Seed membuat 8 permission, 3 role (Super Admin, Form Manager, Viewer), dan satu user admin
+Seed membuat 10 permission, 3 role (Super Admin, Form Manager, Viewer), dan satu user admin
 dari `ADMIN_EMAIL` + `ADMIN_PASSWORD` di `.env`. Kalau dua variabel itu kosong, pembuatan user
 admin dilewati dengan peringatan — service lain tetap jalan. Password hanya diterapkan saat
 user pertama kali dibuat, jadi password yang sudah diganti tidak akan ditimpa balik.
@@ -422,17 +456,18 @@ docker compose up
 
 ## Stack
 
-| Layer          | Teknologi                                           |
-| -------------- | --------------------------------------------------- |
-| Dashboard      | Next.js 16, React 19, Tailwind 4, shadcn/ui         |
-| Dashboard data | TanStack Query 5, Zustand 5, dnd-kit                |
-| Form renderer  | Preact 10, Vite 7                                   |
-| API            | NestJS 11, TypeScript 5.9                           |
-| ORM            | Prisma 7 (driver adapter `pg`, tanpa engine Rust)   |
-| Worker         | BullMQ 6, tsx, googleapis, Nodemailer, React Email  |
-| Pemantauan     | Bull Board 8 (HTTP Basic auth)                      |
-| Shared         | Zod 4                                               |
-| Database       | PostgreSQL 17 (JSONB)                               |
-| Cache & queue  | Redis 7                                             |
-| Object storage | MinIO (S3-compatible)                               |
-| Tooling        | pnpm workspaces, ESLint 9 (flat config), Prettier 3 |
+| Layer          | Teknologi                                              |
+| -------------- | ------------------------------------------------------ |
+| Dashboard      | Next.js 16, React 19, Tailwind 4, shadcn/ui            |
+| Dashboard data | TanStack Query 5, TanStack Table 9, Zustand 5, dnd-kit |
+| Chart & ekspor | Recharts 3, ExcelJS 4                                  |
+| Form renderer  | Preact 10, Vite 7                                      |
+| API            | NestJS 11, TypeScript 5.9                              |
+| ORM            | Prisma 7 (driver adapter `pg`, tanpa engine Rust)      |
+| Worker         | BullMQ 6, tsx, googleapis, Nodemailer, React Email     |
+| Pemantauan     | Bull Board 8 (HTTP Basic auth)                         |
+| Shared         | Zod 4                                                  |
+| Database       | PostgreSQL 17 (JSONB)                                  |
+| Cache & queue  | Redis 7                                                |
+| Object storage | MinIO (S3-compatible)                                  |
+| Tooling        | pnpm workspaces, ESLint 9 (flat config), Prettier 3    |

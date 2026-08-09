@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import ExcelJS from 'exceljs';
+import { buildWorkbook, exportFilename, formatExportTimestamp } from '../../common/xlsx';
 import type { ExportSubmissionsDto } from './dto/submissions.dto';
 import { SubmissionsService, type SubmissionColumn } from './submissions.service';
 
@@ -21,7 +21,7 @@ export interface ExportResult {
   filename: string;
   contentType: string;
   body: Buffer;
-  /** True kalau hasil dipotong batas baris — dipakai controller untuk header peringatan. */
+  /** True kalau hasil dipotong batas baris ekspor — dipakai controller untuk header peringatan. */
   truncated: boolean;
   rowCount: number;
 }
@@ -40,7 +40,7 @@ export class SubmissionExportService {
     const headers = [...META_HEADERS, ...data.columns.map(headerLabel)];
     const rows = data.rows.map((row) => [
       row.id,
-      formatTimestamp(row.submittedAt),
+      formatExportTimestamp(row.submittedAt),
       `v${row.versionNumber}`,
       row.sourceDomain ?? '',
       ...data.columns.map((column) => row.values[column.fieldId] ?? ''),
@@ -50,7 +50,7 @@ export class SubmissionExportService {
       `Ekspor ${rows.length} submission form "${data.form.title}" sebagai ${query.format}`,
     );
 
-    const filename = buildFilename(data.form.title, query.format);
+    const filename = exportFilename([data.form.title], query.format);
 
     return {
       filename,
@@ -60,7 +60,7 @@ export class SubmissionExportService {
         ? { contentType: 'text/csv; charset=utf-8', body: toCsv(headers, rows) }
         : {
             contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            body: await toXlsx(data.form.title, headers, rows),
+            body: await buildWorkbook([{ name: data.form.title, headers, rows }]),
           }),
     };
   }
@@ -73,36 +73,6 @@ export class SubmissionExportService {
  */
 function headerLabel(column: SubmissionColumn): string {
   return column.label === column.name ? column.label : `${column.label} (${column.name})`;
-}
-
-async function toXlsx(title: string, headers: string[], rows: string[][]): Promise<Buffer> {
-  const workbook = new ExcelJS.Workbook();
-  workbook.created = new Date();
-
-  const sheet = workbook.addWorksheet(sheetName(title));
-
-  sheet.addRow(headers);
-  sheet.getRow(1).font = { bold: true };
-  // Baris header ikut tergulir bersama isi kalau tidak dibekukan, dan tabel
-  // submission hampir selalu lebih panjang dari satu layar.
-  sheet.views = [{ state: 'frozen', ySplit: 1 }];
-
-  for (const row of rows) {
-    sheet.addRow(row);
-  }
-
-  sheet.columns.forEach((column, index) => {
-    const longest = rows.reduce(
-      (max, row) => Math.max(max, (row[index] ?? '').length),
-      (headers[index] ?? '').length,
-    );
-
-    // Dibatasi supaya satu jawaban panjang tidak membuat kolomnya selebar layar.
-    column.width = Math.min(50, Math.max(12, longest + 2));
-  });
-
-  // ExcelJS mengembalikan ArrayBuffer-like; Buffer.from menyeragamkannya.
-  return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 
 function toCsv(headers: string[], rows: string[][]): Buffer {
@@ -120,29 +90,4 @@ function escapeCsv(value: string): string {
   const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
 
   return /[",\r\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
-}
-
-/** `2026-08-09 14:30:05` dalam waktu server, konsisten untuk semua baris. */
-function formatTimestamp(value: Date): string {
-  return value.toISOString().replace('T', ' ').slice(0, 19);
-}
-
-/** Excel menolak nama sheet berisi : \ / ? * [ ] dan lebih dari 31 karakter. */
-function sheetName(title: string): string {
-  const cleaned = title.replace(/[:\\/?*[\]]/g, ' ').trim();
-
-  return cleaned.slice(0, 31) || 'Submission';
-}
-
-function buildFilename(title: string, format: string): string {
-  const slug =
-    title
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 60) || 'submission';
-
-  const stamp = new Date().toISOString().slice(0, 10);
-
-  return `${slug}-${stamp}.${format}`;
 }

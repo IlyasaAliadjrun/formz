@@ -97,6 +97,23 @@ export const envSchema = z.object({
    * /admin lainnya. Menaruhnya di /admin akan membuat aturan "semua /admin lewat
    * guard" jadi tidak lagi benar apa adanya.
    */
+  /**
+   * Jadwal refresh materialized view laporan, format cron 5 kolom.
+   *
+   * Job-nya didaftarkan API sebagai job scheduler BullMQ dan dikerjakan worker,
+   * jadi tidak ada crontab sistem yang perlu diurus terpisah dan jadwalnya ikut
+   * terlihat di Bull Board. Makin rapat jadwalnya, makin segar laporannya dan
+   * makin sering database mengagregasi ulang seluruh submission.
+   */
+  REPORT_REFRESH_CRON: z
+    .string()
+    .trim()
+    .regex(
+      /^\S+(\s+\S+){4}$/,
+      'REPORT_REFRESH_CRON harus berupa cron 5 kolom, contoh: */15 * * * *',
+    )
+    .default('*/15 * * * *'),
+
   QUEUE_DASHBOARD_PATH: z.string().startsWith('/').default('/queues'),
   /** Kalau salah satu kosong, Bull Board tidak dipasang sama sekali (fail closed). */
   QUEUE_DASHBOARD_USER: z.string().trim().min(1).optional(),

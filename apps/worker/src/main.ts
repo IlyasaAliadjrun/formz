@@ -6,14 +6,15 @@ import { hasGoogleCredentials } from './google/sheets';
 import { createLogger } from './logger';
 import { mailProvider } from './mail';
 import { processEmailNotification } from './processors/email-notification.processor';
+import { processReportRefresh } from './processors/report-refresh.processor';
 import { processSheetSync } from './processors/sheet-sync.processor';
 
 const logger = createLogger('worker');
 
-function createWorker(queueName: string, processor: Processor): Worker {
+function createWorker(queueName: string, processor: Processor, concurrency?: number): Worker {
   const worker = new Worker(queueName, processor, {
     connection: redis,
-    concurrency: env.WORKER_CONCURRENCY,
+    concurrency: concurrency ?? env.WORKER_CONCURRENCY,
   });
 
   worker.on('completed', (job) => logger.info(`[${queueName}] job #${job.id} selesai`));
@@ -32,6 +33,10 @@ async function bootstrap(): Promise<void> {
   const workers = [
     createWorker(QUEUE_NAMES.SHEET_SYNC, processSheetSync as Processor),
     createWorker(QUEUE_NAMES.EMAIL_NOTIFICATION, processEmailNotification as Processor),
+    // Concurrency 1: dua `REFRESH MATERIALIZED VIEW CONCURRENTLY` pada view yang
+    // sama akan saling menunggu di database, jadi menjalankannya berbarengan
+    // hanya memindahkan antrean dari Redis ke Postgres.
+    createWorker(QUEUE_NAMES.REPORT_REFRESH, processReportRefresh as Processor, 1),
   ];
 
   logger.info(

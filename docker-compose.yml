@@ -54,6 +54,9 @@ x-app-env: &app-env
   SMTP_PASSWORD: ${SMTP_PASSWORD:-}
   MAIL_FROM: ${MAIL_FROM:-}
 
+  # Jadwal refresh materialized view laporan (cron 5 kolom).
+  REPORT_REFRESH_CRON: ${REPORT_REFRESH_CRON:-*/15 * * * *}
+
   # Bull Board. Tidak dipasang sama sekali kalau user/password kosong.
   QUEUE_DASHBOARD_PATH: ${QUEUE_DASHBOARD_PATH:-/queues}
   QUEUE_DASHBOARD_USER: ${QUEUE_DASHBOARD_USER:-}

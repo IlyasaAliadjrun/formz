@@ -7,6 +7,7 @@ export * from './answer-validation';
 export * from './answer-display';
 export * from './submission';
 export * from './integrations';
+export * from './reporting';
 export * from './queue';
 export * from './health';
 export * from './rbac';

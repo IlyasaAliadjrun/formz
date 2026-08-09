@@ -9,7 +9,11 @@ import type { Env } from './config/env.schema';
 import { createCorsDelegate } from './modules/public/public-cors';
 import { PublicFormsService } from './modules/public/public-forms.service';
 import { mountBullBoard } from './modules/queue/bull-board';
-import { EMAIL_NOTIFICATION_QUEUE, SHEET_SYNC_QUEUE } from './modules/queue/queue.constants';
+import {
+  EMAIL_NOTIFICATION_QUEUE,
+  REPORT_REFRESH_QUEUE,
+  SHEET_SYNC_QUEUE,
+} from './modules/queue/queue.constants';
 
 async function bootstrap(): Promise<void> {
   const logger = new Logger('Bootstrap');
@@ -36,6 +40,7 @@ async function bootstrap(): Promise<void> {
   const boardMounted = mountBullBoard(app, env, [
     app.get<Queue>(SHEET_SYNC_QUEUE),
     app.get<Queue>(EMAIL_NOTIFICATION_QUEUE),
+    app.get<Queue>(REPORT_REFRESH_QUEUE),
   ]);
 
   app.enableShutdownHooks();
