@@ -87,7 +87,8 @@ docker compose logs -f
 Urutan start-up sudah diatur otomatis:
 
 1. `deps` — `pnpm install --frozen-lockfile` untuk seluruh workspace (sekali jalan, lalu exit)
-2. `shared-build` — build `@formz/shared` ke `dist/` (sekali jalan, lalu exit)
+2. `shared-build` — build `@formz/shared` ke `dist/` (CJS) dan `dist-esm/` (ESM),
+   sekali jalan lalu exit
 3. `postgres`, `redis`, `minio` — ditunggu sampai status **healthy**
 4. `db-setup` — `prisma generate` → `prisma migrate deploy` → `prisma db seed` (idempotent)
 5. `minio-init` — bikin bucket upload kalau belum ada
@@ -127,7 +128,7 @@ Lalu buka di browser:
 | URL                          | Isi                                        |
 | ---------------------------- | ------------------------------------------ |
 | http://localhost:3000        | Admin dashboard (login, form builder)      |
-| http://localhost:5173        | Form renderer (placeholder)                |
+| http://localhost:5173/f/KEY  | Form renderer untuk satu form              |
 | http://localhost:4000/health | Health check API                           |
 | http://localhost:9001        | MinIO console (login pakai `MINIO_ROOT_*`) |
 
@@ -171,6 +172,47 @@ Buka http://localhost:3000 lalu login dengan `ADMIN_EMAIL` + `ADMIN_PASSWORD` da
 | `/forms`           | Daftar form: status, tanggal update, jumlah submission |
 | `/forms/:id/edit`  | Form builder tiga panel: field, preview, properti      |
 | `/forms/:id/embed` | formKey, snippet iframe & script tag, whitelist domain |
+
+### Memasang form di website lain
+
+Form yang sudah **dipublish** bisa dipasang di website mana pun dengan salah satu
+dari dua snippet berikut (keduanya tersedia siap salin di `/forms/:id/embed`):
+
+```html
+<!-- 1. iframe — paling terisolasi dari CSS & JavaScript website pemasang -->
+<iframe
+  src="http://localhost:5173/f/FORM_KEY"
+  style="width:100%;border:0;min-height:600px"
+></iframe>
+
+<!-- 2. Script tag — iframe dibuat otomatis di posisi snippet, tinggi ikut menyesuaikan -->
+<script src="http://localhost:5173/embed.js" data-form="FORM_KEY" async></script>
+```
+
+Mode script tag juga bisa mengisi wadah yang sudah ada, berguna kalau ada
+beberapa form dalam satu halaman:
+
+```html
+<div data-formz="FORM_KEY"></div>
+<script src="http://localhost:5173/embed.js" async></script>
+```
+
+Untuk mencobanya tanpa website sungguhan, ada [test-embed.html](./test-embed.html)
+di root project. Berkas itu harus **disajikan lewat HTTP**, bukan dibuka sebagai
+`file://` — halaman `file://` ber-origin `null` sehingga tidak lolos pemeriksaan
+domain:
+
+```bash
+python3 -m http.server 8080     # lalu buka http://localhost:8080/test-embed.html
+```
+
+Halaman itu memuat form dengan kedua cara sekaligus dan mencatat semua
+`postMessage` yang diterima, jadi penyesuaian tinggi otomatis bisa dilihat langsung.
+
+**Whitelist domain.** Selama daftar domain di halaman embed masih kosong, form
+boleh dipasang di mana saja. Begitu diisi, hanya domain di daftar itu yang bisa
+memuat dan mengirim jawaban — termasuk saat mencoba lewat `test-embed.html`,
+yang berarti `localhost:8080` perlu ikut didaftarkan.
 
 Catatan: `next build` di app dashboard menyetel `NODE_ENV=production` sendiri lewat
 script-nya. Ini disengaja — container dev compose menyetel `NODE_ENV=development`, dan
@@ -223,6 +265,11 @@ Source code di-bind mount ke container, jadi perubahan file langsung terbaca:
 - `worker` — `tsx watch`
 - `dashboard` — `next dev` (Turbopack)
 - `embed` — `vite` (HMR)
+
+`packages/shared` di-build dua kali: `dist/` (CommonJS, dipakai api & worker yang
+memang berjalan sebagai CJS) dan `dist-esm/` (ESM, dipakai dashboard & embed).
+Bundler tidak bisa meng-_tree-shake_ CommonJS, dan tanpa keluaran ESM seluruh isi
+shared — termasuk Zod — ikut terbawa ke bundle form renderer.
 
 Perubahan di `packages/shared` **tidak** otomatis terbaca karena app membaca hasil build-nya.
 Setelah mengubah shared, jalankan:

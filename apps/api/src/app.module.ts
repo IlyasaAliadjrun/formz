@@ -3,12 +3,14 @@ import { APP_GUARD } from '@nestjs/core';
 import { AppConfigModule } from './config/config.module';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './infrastructure/prisma/prisma.module';
+import { RateLimitModule } from './infrastructure/rate-limit/rate-limit.module';
 import { RedisModule } from './infrastructure/redis/redis.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { FormsModule } from './modules/forms/forms.module';
 import { IntegrationsModule } from './modules/integrations/integrations.module';
 import { QueueModule } from './modules/queue/queue.module';
+import { PublicModule } from './modules/public/public.module';
 import { PermissionsGuard } from './modules/rbac/guards/permissions.guard';
 import { RbacModule } from './modules/rbac/rbac.module';
 import { ReportingModule } from './modules/reporting/reporting.module';
@@ -22,6 +24,7 @@ import { UsersModule } from './modules/users/users.module';
     AppConfigModule,
     PrismaModule,
     RedisModule,
+    RateLimitModule,
     HealthModule,
 
     // Auth & RBAC
@@ -29,8 +32,11 @@ import { UsersModule } from './modules/users/users.module';
     AuthModule,
     UsersModule,
 
-    // Modul fitur — masih kosong, diisi di part berikutnya
+    // Form: sisi admin (/admin/forms) dan sisi publik (/public/forms)
     FormsModule,
+    PublicModule,
+
+    // Modul fitur — masih kosong, diisi di part berikutnya
     SubmissionsModule,
     IntegrationsModule,
     ReportingModule,

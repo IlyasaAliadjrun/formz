@@ -30,6 +30,11 @@ x-app-env: &app-env
   DASHBOARD_URL: ${DASHBOARD_URL:-http://localhost:3000}
   EMBED_URL: ${EMBED_URL:-http://localhost:5173}
 
+  # Endpoint publik /public/* yang dipakai form renderer
+  PUBLIC_SCHEMA_CACHE_TTL: ${PUBLIC_SCHEMA_CACHE_TTL:-300}
+  PUBLIC_RATE_LIMIT_PER_MINUTE: ${PUBLIC_RATE_LIMIT_PER_MINUTE:-60}
+  TRUST_PROXY: ${TRUST_PROXY:-false}
+
   JWT_SECRET: ${JWT_SECRET:?JWT_SECRET wajib diisi di .env (openssl rand -hex 32)}
   JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET wajib diisi di .env}
   JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-15m}

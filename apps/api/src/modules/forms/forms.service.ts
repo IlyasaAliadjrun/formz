@@ -16,6 +16,7 @@ import {
 } from '@formz/shared';
 import { PrismaService } from '../../infrastructure/prisma/prisma.service';
 import { Prisma } from '../../generated/prisma/client';
+import { PublishedFormCacheService } from './published-form-cache.service';
 import type {
   CreateFormDto,
   EmbedSettingsDto,
@@ -68,7 +69,10 @@ export interface FormDetail extends FormSummary {
 export class FormsService {
   private readonly logger = new Logger(FormsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: PublishedFormCacheService,
+  ) {}
 
   async list(query: ListFormsDto): Promise<{
     data: FormSummary[];
@@ -195,7 +199,7 @@ export class FormsService {
   async publish(id: string, dto: PublishFormDto): Promise<FormDetail> {
     const form = await this.prisma.form.findUnique({
       where: { id },
-      select: { id: true, title: true, description: true, status: true },
+      select: { id: true, formKey: true, title: true, description: true, status: true },
     });
 
     if (!form) throw new NotFoundException(`Form ${id} tidak ditemukan`);
@@ -242,6 +246,9 @@ export class FormsService {
       }),
     ]);
 
+    // Tanpa ini, form yang di-embed tetap menampilkan versi lama sampai TTL habis.
+    await this.cache.invalidate(form.formKey);
+
     this.logger.log(`Form ${form.title} dipublish sebagai versi ${draft.versionNumber}`);
 
     return this.findById(id);
@@ -256,13 +263,21 @@ export class FormsService {
   ): Promise<{ deleted: boolean; status: FormStatus | null; message: string }> {
     const form = await this.prisma.form.findUnique({
       where: { id },
-      select: { id: true, title: true, status: true, _count: { select: { submissions: true } } },
+      select: {
+        id: true,
+        formKey: true,
+        title: true,
+        status: true,
+        _count: { select: { submissions: true } },
+      },
     });
 
     if (!form) throw new NotFoundException(`Form ${id} tidak ditemukan`);
 
     if (form._count.submissions > 0) {
       await this.prisma.form.update({ where: { id }, data: { status: 'archived' } });
+      // Form yang diarsipkan harus langsung berhenti bisa diisi lewat embed.
+      await this.cache.invalidate(form.formKey);
 
       this.logger.log(`Form ${form.title} diarsipkan (${form._count.submissions} submission)`);
 
@@ -275,6 +290,7 @@ export class FormsService {
 
     // form_versions ikut terhapus lewat cascade; tidak ada submission yang menahan.
     await this.prisma.form.delete({ where: { id } });
+    await this.cache.invalidate(form.formKey);
 
     this.logger.log(`Form ${form.title} dihapus permanen (belum ada submission)`);
 
@@ -295,6 +311,9 @@ export class FormsService {
       data: { allowedDomains },
       select: { ...FORM_SELECT, versions: { select: VERSION_SUMMARY_SELECT } },
     });
+
+    // Whitelist ikut di-cache karena dibaca pemeriksaan CORS di tiap request.
+    await this.cache.invalidate(form.formKey);
 
     this.logger.log(
       `Whitelist embed form ${form.title} diubah: ${allowedDomains.length === 0 ? '(semua domain)' : allowedDomains.join(', ')}`,

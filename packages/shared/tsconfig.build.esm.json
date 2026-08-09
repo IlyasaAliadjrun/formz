@@ -1,0 +1,20 @@
+{
+  // Keluaran ESM di samping CommonJS.
+  //
+  // api dan worker berjalan sebagai CommonJS, jadi `dist/` tetap CJS. Tapi
+  // bundler (Vite di apps/embed, webpack di apps/dashboard) tidak bisa
+  // meng-tree-shake CommonJS: pola `__exportStar(require(...))` hasil kompilasi
+  // memaksa seluruh modul ikut terbawa, termasuk Zod — yang jadi 84% isi bundle
+  // form renderer padahal sebagian besar schema-nya tidak pernah dipakai di sana.
+  //
+  // Deklarasi tipe tidak diulang di sini; `dist/index.d.ts` dipakai keduanya.
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "outDir": "./dist-esm",
+    "declaration": false,
+    "declarationMap": false
+  },
+  "exclude": ["node_modules", "dist", "dist-esm", "**/*.spec.ts", "**/*.test.ts"]
+}

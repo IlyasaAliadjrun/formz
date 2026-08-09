@@ -71,7 +71,7 @@ export default function EmbedSettingsPage() {
 
   const embedUrl = `${EMBED_BASE_URL}/f/${form.formKey}`;
   const iframeSnippet = `<iframe\n  src="${embedUrl}"\n  style="width:100%;border:0;min-height:600px"\n  title="${form.title.replace(/"/g, '&quot;')}"\n  loading="lazy"\n></iframe>`;
-  const scriptSnippet = `<div data-formz="${form.formKey}"></div>\n<script src="${EMBED_BASE_URL}/embed.js" async></script>`;
+  const scriptSnippet = `<script src="${EMBED_BASE_URL}/embed.js" data-form="${form.formKey}" async></script>`;
 
   const addDomain = () => {
     const value = newDomain.trim();
@@ -177,7 +177,7 @@ export default function EmbedSettingsPage() {
           />
           <SnippetBlock
             title="Script tag"
-            description="Untuk tampilan yang lebih menyatu dengan tema website. Tersedia mulai part form renderer."
+            description="Satu baris — iframe dibuat otomatis di posisi snippet ini, lengkap dengan penyesuaian tinggi."
             snippet={scriptSnippet}
           />
         </CardContent>

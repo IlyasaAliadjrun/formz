@@ -3,6 +3,7 @@ export * from './conditions';
 export * from './form-schema';
 export * from './form-schema-validation';
 export * from './condition-evaluator';
+export * from './answer-validation';
 export * from './submission';
 export * from './queue';
 export * from './health';

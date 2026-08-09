@@ -3,7 +3,7 @@
 Catatan progres lintas sesi. Setiap part yang selesai dicentang di sini, lengkap dengan
 tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tanpa menebak-nebak.
 
-**Status saat ini:** Part 4 selesai. Berikutnya: Part 5 (Form renderer & embed).
+**Status saat ini:** Part 5 selesai. Berikutnya: Part 6 (Submission management).
 
 | Part | Judul                                    | Status     |
 | ---- | ---------------------------------------- | ---------- |
@@ -12,7 +12,7 @@ tanggal dan catatan singkat, supaya sesi berikutnya bisa langsung menyambung tan
 | 2    | Auth & RBAC                              | ✅ Selesai |
 | 3    | Form CRUD & schema engine (API)          | ✅ Selesai |
 | 4    | Form builder UI (dashboard)              | ✅ Selesai |
-| 5    | Form renderer & embed                    | ⬜ Belum   |
+| 5    | Form renderer & embed                    | ✅ Selesai |
 | 6    | Submission management                    | ⬜ Belum   |
 | 7    | Integrasi Google Sheets (queue + worker) | ⬜ Belum   |
 | 8    | Workflow notifikasi email                | ⬜ Belum   |
@@ -416,26 +416,177 @@ untuk Dialog, Checkbox, Switch, Label, dan Separator yang memang butuh perilaku 
 - Halaman manajemen user & role belum dibuat (API-nya sudah siap sejak Part 2).
 - Snippet script tag sudah ditampilkan, tapi `embed.js` sendiri baru dibuat di Part 5.
 
-## ⬜ Part 5 — Form renderer & embed
+## ✅ Part 5 — Form renderer & embed
 
-- [ ] Endpoint publik `GET /public/forms/:formKey/schema` (dipindah dari Part 3)
-- [ ] Cache schema form di Redis + invalidasi saat publish (dipindah dari Part 3)
-- [ ] Route `/f/:formKey` mengambil schema publik
-- [ ] Render semua field type sesuai registry
-- [ ] Evaluasi conditional show/hide di client
-- [ ] Validasi client-side pakai Zod dari `@formz/shared`
-- [ ] Submit jawaban ke endpoint publik
-- [ ] Upload file lewat presigned URL ke MinIO
-- [ ] Auto-resize iframe & notifikasi ke parent lewat `postMessage`
-- [ ] Snippet embed (iframe + script tag) + halaman contoh
-- [ ] Cek ukuran bundle (target tetap kecil)
+_Selesai: 9 Agustus 2026_
+
+- [x] Endpoint publik `GET /public/forms/:formKey/schema` (dipindah dari Part 3)
+- [x] Cache schema form di Redis + invalidasi saat publish (dipindah dari Part 3)
+- [x] Endpoint publik `POST /public/forms/:formKey/submit` (diambil maju dari Part 6)
+- [x] Validasi ulang jawaban di server termasuk evaluasi ulang rule show/hide
+      (diambil maju dari Part 6)
+- [x] CORS whitelist per form + rate limit per `formKey`/IP (diambil maju dari Part 6)
+- [x] Snapshot `form_version_id` di setiap submission (diambil maju dari Part 6)
+- [x] `validateAnswers()` / `validateAnswer()` di `@formz/shared` — dipakai renderer
+      dan API dari satu definisi yang sama
+- [x] Route `/f/:formKey` mengambil schema publik
+- [x] Render 12 dari 13 field type (semua kecuali `file_upload`, lihat catatan)
+- [x] Evaluasi conditional show/hide real-time di client
+- [x] Validasi client-side sebelum submit (required, format email, pola, rentang)
+- [x] Submit jawaban ke endpoint publik + idempotency `clientSubmissionId`
+- [x] Halaman terima kasih dengan pesan dari `settings.successMessage`
+- [x] Auto-resize iframe & notifikasi ke parent lewat `postMessage`
+- [x] `embed.js` untuk mode script tag + `test-embed.html` sebagai contoh
+- [x] Cek ukuran bundle: **127 kB mentah / 36,6 kB gzip** (lihat keputusan desain)
+- [ ] Upload file lewat presigned URL ke MinIO → dipindah ke Part 6
+
+**Terverifikasi (Playwright di halaman statis luar aplikasi, 26 pemeriksaan lolos,
+0 error konsol):**
+
+- Form terender di dalam iframe dari `test-embed.html` yang disajikan di
+  `localhost:8080` — domain yang terdaftar di whitelist form
+- Field bersyarat (`Durasi implementasi`) dan opsi bersyarat (`Migrasi data`)
+  tidak terender sama sekali sebelum kondisinya terpenuhi, lalu muncul seketika
+  saat "Implementasi" dipilih, dan hilang lagi saat dikembalikan ke "Konsultasi"
+- Tinggi iframe mengikuti isi: 1211px → 1327px saat field muncul, lalu turun ke
+  234px saat panel sukses menggantikan form
+- Submit kosong ditahan di client; format email diperiksa saat meninggalkan field
+- Submit lengkap menampilkan halaman terima kasih berisi pesan dari settings form
+- `embed.js` membuat iframe sendiri dari `data-form` dan menyesuaikan tingginya
+
+**Terverifikasi (curl ke stack yang jalan):**
+
+- `GET /public/forms/:formKey/schema` tanpa token mengembalikan schema versi
+  terpublish; `allowedDomains`, `createdBy`, integrasi, dan aturan notifikasi
+  tidak ikut, begitu pula `settings.rateLimitPerHour`
+- Submit yang menyelipkan `f_durasi: 99` dan opsi tersembunyi `opt_migrasi`
+  padahal memilih "Konsultasi" → keduanya **tidak** tersimpan di database
+- Validasi ulang server menolak email salah format, teks terlalu pendek, pola HP
+  tidak cocok, dan tiga field wajib yang kosong — dengan pesan per field
+- Whitelist domain: `klien.example.com` ✅, `app.mitra.co.id` (wildcard) ✅,
+  `mitra.co.id` (apex) ❌, `localhost:8080` ✅, `localhost:9999` (beda port) ❌,
+  `pencuri.com` ❌, dan halaman induk `pencuri.com` di dalam iframe renderer ❌
+- Preflight `OPTIONS` dijawab 204 lengkap dengan header CORS per form
+- Rate limit: tepat 60 request lolos, sisanya 429 dengan `Retry-After`
+- Publish versi 2 langsung terlihat di endpoint publik (cache dibatalkan), begitu
+  pula perubahan whitelist domain
+
+`pnpm -r typecheck`, `pnpm -r lint`, `pnpm -r test` (123 test), `format:check`,
+`vite build`, dan `next build` semuanya bersih.
+
+### Keputusan desain
+
+**CORS saja tidak cukup, karena di dalam iframe `Origin` selalu menunjuk ke
+renderer.** Ini poin yang mudah terlewat: halaman di dalam iframe ber-origin
+`embed.domain.com` apa pun website yang memasangnya, jadi `allowed_domains`
+yang dicek lewat `Origin` tidak pernah bisa membedakan pemasang yang sah dari
+yang mencuri. Karena itu renderer mengirim `document.referrer` — URL halaman
+induk — lewat header `X-Formz-Parent`, dan itulah yang dicocokkan dengan
+whitelist. Nilainya bisa dipalsukan pemanggil langsung, sama seperti `Origin`,
+dan memang bukan satu-satunya proteksi (ARCHITECTURE.md bagian 3.2): yang
+dicegah adalah pemasangan ulang di browser, bukan penyerang yang menulis skrip
+sendiri. Proteksi utamanya tetap `formKey` yang tidak bisa ditebak.
+
+**Whitelist ditegakkan dua lapis.** Header CORS hanya membuat browser menolak
+_membaca_ respons — request-nya tetap sampai dan tetap dilayani. Jadi selain
+delegasi CORS di `main.ts`, ada `FormOriginGuard` yang benar-benar menolak
+request dengan 403. Keduanya memakai fungsi pencocokan yang sama di
+`origin-policy.ts`, supaya tidak mungkin menyimpang.
+
+**CORS diputuskan lewat delegasi, bukan dua konfigurasi terpisah.** Origin yang
+diizinkan baru diketahui setelah formKey di URL dibaca, dan preflight `OPTIONS`
+tidak pernah sampai ke controller — jadi keputusannya harus diambil di lapisan
+yang berjalan sebelum routing. `app.enableCors()` menerima delegasi per request,
+yang membuat dashboard (satu origin, dengan kredensial) dan endpoint publik
+(origin per form, tanpa kredensial) bisa hidup berdampingan tanpa saling bocor.
+
+**Rate limit dua lapis dengan tujuan berbeda.** Burst per menit
+(`PUBLIC_RATE_LIMIT_PER_MINUTE`) berlaku untuk semua endpoint publik dan menahan
+penembakan formKey acak. Kuota submit per jam diambil dari
+`settings.rateLimitPerHour` milik form itu sendiri, karena wajarnya berbeda jauh
+antara form pendaftaran acara dan form kontak biasa. Limiter-nya fixed window —
+satu `INCR` saja — dan sengaja **fail open**: Redis yang bermasalah harus
+membuat form tetap bisa diisi, bukan menolak semua orang.
+
+**`allowedDomains` dan `rateLimitPerHour` ikut di-cache, bukan hanya schema.**
+Keduanya dibaca di **setiap** request publik termasuk preflight. Kalau hanya
+schema yang di-cache, query database tetap jalan tiap request dan cache-nya
+kehilangan gunanya. Cache-nya tinggal di `FormsModule` bersama penulisnya, supaya
+sulit ada jalur perubahan (publish, ubah whitelist, arsip, hapus) yang lupa
+membatalkannya. formKey yang tidak dikenal sengaja **tidak** di-cache — kalau
+di-cache, siapa pun bisa memenuhi Redis dengan menembak key acak.
+
+**Jawaban yang disimpan adalah hasil `getEffectiveAnswers`, bukan payload mentah.**
+Inilah penutup celah ARCHITECTURE.md bagian 6 poin 2. Jawaban untuk field yang
+menurut kondisi seharusnya tersembunyi dibuang **diam-diam**, bukan ditolak —
+karena pengisi form memang bisa saja sempat mengisinya lalu mengubah jawaban di
+atasnya. Yang ditolak hanya jawaban yang benar-benar salah (opsi tidak dikenal,
+format tidak sesuai).
+
+**`packages/shared` sekarang di-build ke CommonJS _dan_ ESM.** Awalnya hanya CJS,
+dan itu memunculkan dua masalah sekaligus di `apps/embed`. Pertama, named import
+gagal saat runtime: analisis ESM Vite tidak bisa menembus `__exportStar(require(…))`
+hasil kompilasi TypeScript. Kedua — dan ini yang lebih mahal — CommonJS tidak
+bisa di-_tree-shake_, sehingga **seluruh** isi shared ikut terbawa ke bundle form
+renderer, termasuk seluruh Zod: 84% isi bundle, padahal sebagian besar schema-nya
+tidak pernah dipakai di sana. Menambah keluaran ESM (`dist-esm/`, dipilih lewat
+`exports` condition `import`) menyelesaikan keduanya sekaligus dan memangkas
+bundle dari **437 kB → 127 kB mentah, 97,6 kB → 36,6 kB gzip**. api dan worker
+tetap memakai `dist/` lewat condition `require`, jadi tidak ada yang berubah di
+sisi mereka.
+
+**Tinggi iframe diukur dari elemen akar, bukan `documentElement.scrollHeight`.**
+Tinggi dokumen tidak pernah lebih kecil dari viewport, sementara viewport di
+dalam iframe adalah tinggi yang barusan kita minta sendiri ke halaman induk.
+Akibatnya iframe hanya bisa membesar dan tidak pernah mengecil lagi — terlihat
+jelas saat form panjang berganti jadi panel sukses yang pendek, yang menyisakan
+ruang kosong seribu piksel. Mengukur `#formz-root` memutus lingkaran itu.
+
+**`embed.js` berkas statis di `public/`, bukan modul yang di-bundle.** Isinya
+tidak butuh Preact maupun kode form sama sekali — cuma membuat iframe dan
+mendengarkan pesan tinggi. Sebagai berkas statis, halaman yang memasangnya hanya
+mengunduh ~2 kB sampai iframe-nya dibuka. Origin renderer diambil dari
+`document.currentScript.src`, jadi tidak ada URL yang perlu ditulis dua kali.
+Pesan `postMessage` diverifikasi dua kali di sisi penerima: harus dari origin
+renderer, dan dari jendela iframe yang memang dibuat skrip itu.
+
+**Komponen field renderer ditulis terpisah dari preview dashboard.** Yang dibagi
+bukan tampilannya melainkan logikanya — definisi field type, `evaluateConditions`,
+dan `validateAnswers` semuanya dari `@formz/shared`. Markup dan gaya ditulis
+sendiri tanpa framework CSS, karena berkas ini ikut terkirim ke setiap website
+yang memasang form.
+
+**Catatan untuk part berikutnya:**
+
+- **`file_upload` dirender tapi dinonaktifkan.** Unggah berkas butuh presigned URL
+  ke MinIO yang belum dibuat, jadi field-nya tampil sebagai input mati dengan
+  keterangan "Unggah berkas belum tersedia". Aturan validasinya (`required`,
+  `maxFiles`, `maxFileSizeBytes`, `allowedMimeTypes`) sengaja **belum ditegakkan**
+  di `validateAnswer` — kalau ditegakkan sekarang, field wajib bertipe berkas jadi
+  jalan buntu yang tidak bisa dilewati sama sekali. Menyalakannya di Part 6 berarti
+  menghapus satu early-return di `answer-validation.ts`.
+- `submissions.ip_address` sudah terisi. Kalau nanti ada di belakang reverse proxy,
+  `TRUST_PROXY=true` wajib dinyalakan — tanpa itu semua submission tercatat ber-IP
+  gateway Docker, dan rate limit per IP jadi rate limit global.
+- Idempotency `clientSubmissionId` disimpan di Redis (TTL 1 jam), bukan kolom
+  database, jadi tidak butuh migrasi. Kalau nanti dianggap perlu tahan restart
+  Redis, tambahkan kolom unik di `submissions`.
+- Job sync spreadsheet & notifikasi email belum di-enqueue saat submit masuk —
+  titik pemasangannya sudah ditandai komentar di `PublicFormsService.submit`.
+- Belum ada captcha. `settings.requireCaptcha` sudah ada di schema tapi belum
+  dibaca renderer maupun server.
+- Belum ada halaman "form sudah ditutup" yang khusus; form draft, arsip, dan tidak
+  ada sama-sama menghasilkan 404 dengan pesan identik (disengaja, supaya formKey
+  yang ada tidak bisa dipetakan dari beda pesan error).
 
 ## ⬜ Part 6 — Submission management
 
-- [ ] Endpoint publik `POST /public/forms/:formKey/submit`
-- [ ] Validasi ulang jawaban di server, termasuk evaluasi ulang rule show/hide
-- [ ] CORS whitelist per form + rate limit per `formKey`/IP
-- [ ] Simpan snapshot `schema_version_id` di setiap submission
+- [x] ~~Endpoint publik `POST /public/forms/:formKey/submit`~~ → selesai di Part 5
+- [x] ~~Validasi ulang jawaban di server, termasuk evaluasi ulang rule show/hide~~ → Part 5
+- [x] ~~CORS whitelist per form + rate limit per `formKey`/IP~~ → selesai di Part 5
+- [x] ~~Simpan snapshot `schema_version_id` di setiap submission~~ → selesai di Part 5
+- [ ] Upload file lewat presigned URL ke MinIO (dipindah dari Part 5), lalu
+      nyalakan validasi `file_upload` di `answer-validation.ts`
 - [ ] List submission dengan pagination/filter/sort server-side (TanStack Table)
 - [ ] Detail submission per field + status integrasi (spreadsheet & email)
 - [ ] Hapus/arsip submission sesuai permission

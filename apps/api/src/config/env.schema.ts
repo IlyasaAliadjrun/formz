@@ -32,6 +32,22 @@ export const envSchema = z.object({
   DASHBOARD_URL: z.string().default('http://localhost:3000'),
   EMBED_URL: z.string().default('http://localhost:5173'),
 
+  /**
+   * Aktifkan hanya kalau API benar-benar berada di belakang reverse proxy yang
+   * menulis `X-Forwarded-For` (Caddy/Nginx di Part 10). Kalau diaktifkan tanpa
+   * proxy, siapa pun bisa memalsukan IP-nya dan lolos rate limit.
+   */
+  TRUST_PROXY: z
+    .string()
+    .default('false')
+    .transform((value) => value === 'true'),
+
+  // Endpoint publik (/public/*) — dipakai form renderer yang di-embed
+  /** Umur cache schema publik di Redis. Dibatalkan lebih awal setiap kali publish. */
+  PUBLIC_SCHEMA_CACHE_TTL: z.coerce.number().int().positive().max(86_400).default(300),
+  /** Batas atas request per menit per (formKey, IP) untuk seluruh endpoint publik. */
+  PUBLIC_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(60),
+
   // Auth. Dua secret sengaja dipisah supaya access token yang bocor tidak bisa
   // dipakai untuk menempa refresh token, dan sebaliknya.
   JWT_SECRET: z.string().min(32, 'JWT_SECRET minimal 32 karakter'),
